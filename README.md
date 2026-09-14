@@ -18,7 +18,7 @@
   ```bash
   bash linuxdmas.sh
   ```
-----
+  
 - Chỉ cần nhập lệnh trên nó sẽ tự động cài đặt cho bạn và tự mở Termux-X11 cho bạn còn lại bạn chỉ cần tận hưởng và trải nhiệm
 > Lưu ý: Nó cài kha khá nhiều giao diện và 1 số thứ có thể rất lâu và nó phụ thuộc vào mạng Wifi và Chip xử lý lên có thể hơi lâu
 
