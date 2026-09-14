@@ -1,4 +1,4 @@
-# DmasLinux
+# Dmas Linux Termux Desktop
 
 # Giới thiệu
 - Linux được tạo bởi Nguyễn Tấn Dũng
