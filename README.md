@@ -24,4 +24,11 @@
 > Lưu ý: Nó cài kha khá nhiều giao diện và 1 số thứ có thể rất lâu và nó phụ thuộc vào mạng Wifi và Chip xử lý lên có thể hơi lâu
 
 - Tôi sẽ cố gắng nâng cấp và xử lý làm sao để có thể giải quyết vấn đề này nhanh nhất có thể
+
+# Lưu ý
+- Các máy đời thấp RAM 4GB trở xuống các bạn lên root và cài module ZRAM để dùng
+- Đa số máy đời thấp sẽ được coi là máy bỏ đi nó khá ít RAM các bạn mở 2 app trở nên sẽ tràn
+- Nên dùng root và ZRAM để có không gian bộ nhớ làm việc
+- Nếu muốn buil server cao hơn cũng cần đến root
+- Nó không thể thay thế thành máy tính thật được nên bị giới hạn rất nhiều tứ
   
