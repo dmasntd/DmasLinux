@@ -1,5 +1,7 @@
 # Dmas Linux Termux Desktop
 
+----
+
 # Giới thiệu
 - Linux được tạo bởi Nguyễn Tấn Dũng
 - Nó tận dụng tài nguyên của một thiết bị đã bỏ đi làm linux
