@@ -30,5 +30,6 @@
 - Đa số máy đời thấp sẽ được coi là máy bỏ đi nó khá ít RAM các bạn mở 2 app trở nên sẽ tràn
 - Nên dùng root và ZRAM để có không gian bộ nhớ làm việc
 - Nếu muốn buil server cao hơn cũng cần đến root
-- Nó không thể thay thế thành máy tính thật được nên bị giới hạn rất nhiều tứ
+- Nó không thể thay thế thành máy tính thật được và nó giới hạn xử lý theo chip
+- Nên chạy dự án nhẹ vừa đủ 
   
