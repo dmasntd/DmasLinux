@@ -8,8 +8,8 @@
 
 # Cài đặt
 - Tải Termux-X11 tại đây: [Termux-X11](https://github.com/termux/termux-x11/releases/tag/nightly)
-- Cài đặt Termux bản mới nhất trên F-droid: [Termux](https://f-droid.org/en/packages/com.termux/)
-                                   Github: [Termux](https://github.com/termux/termux-app/releases)
+- Cài đặt Termux bản mới nhất trên [F-droid](https://f-droid.org): [Termux F-droid](https://f-droid.org/en/packages/com.termux/)
+- Cài đặt Termux bản mới nhất trên [Github](https://github.com): [Termux Github](https://github.com/termux/termux-app/releases)
 
 - Cài đặt dự án về máy: [DmasLinux](https://github.com/dmasntd/DmasLinux/archive/refs/heads/main.zip)
 
