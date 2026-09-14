@@ -1,10 +1,10 @@
 # DmasLinux
 
 # Giới thiệu
-- Linux được tạo bởi Nguyễn Tấn Dũng dựa trên ubuntu
+- Linux được tạo bởi Nguyễn Tấn Dũng
 - Nó tận dụng tài nguyên của một thiết bị đã bỏ đi làm linux
 - Bạn cũng có thể dùng để làm server đơn giản như cho mai cồ ráp (Minecraft) hoặc dự án nhẹ
-- Nó dùng proot-distro để dùng ubuntu tại termux
+- Nó dùng proot-distro để dùng ubuntu, debian, fedora, v.v tại termux
 
 # Cài đặt
 - Tải Termux-X11 tại đây: [Termux-X11](https://github.com/termux/termux-x11/releases/tag/nightly)
@@ -18,3 +18,9 @@
   ```bash
   bash linuxdmas.sh
   ```
+
+- Chỉ cần nhập lệnh trên nó sẽ tự động cài đặt cho bạn và tự mở Termux-X11 cho bạn còn lại bạn chỉ cần tận hưởng và trải nhiệm
+> Lưu ý: Nó cài kha khá nhiều giao diện và 1 số thứ có thể rất lâu và nó phụ thuộc vào mạng Wifi và Chip xử lý lên có thể hơi lâu
+
+- Tôi sẽ cố gắng nâng cấp và xử lý làm sao để có thể giải quyết vấn đề này nhanh nhất có thể
+  
