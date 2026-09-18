@@ -47,7 +47,7 @@
  > Phiên bản dành cho user thường 
 - Phiên bản [v2](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh)
  > Phiên bản này giải quyết vấn đề ở phiên bản [v1](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmas.sh)
- - Fix lại UI do lệch UI
- - Sử dụng nhiều nhân CPU hiệu năng cao
- - Sử dụng subprocess chia luồng cài đặt giải quyết tốc độ cài đặt
- - Ưu tiên CPU cho process có tốc độ chậm 
+ > - Fix lại UI do lệch UI
+ > - Sử dụng nhiều nhân CPU hiệu năng cao
+ > - Sử dụng subprocess chia luồng cài đặt giải quyết tốc độ cài đặt
+ > - Ưu tiên CPU cho process có tốc độ chậm 
