@@ -1,5 +1,9 @@
 #!/bin/sh
-
+# ==========================================
+# LINUX DMAS AUTOMATED INSTALLER (POSIX)
+# ==========================================
+# Chạy lại nhiều lần an toàn; DMAS_FORCE_IPV4=1 sh linuxdmas.sh nếu mạng kẹt IPv6
+# ==========================================
 ESC=$(printf '\033')
 C_CYAN="${ESC}[38;2;0;220;255m"
 C_GREEN="${ESC}[38;2;50;255;120m"
@@ -7,11 +11,12 @@ C_YELLOW="${ESC}[38;2;255;200;50m"
 C_MAGENTA="${ESC}[38;2;235;90;255m"
 C_RED="${ESC}[38;2;255;80;80m"
 C_RESET="${ESC}[0m"
-TAG="${C_CYAN}[DmasLinux]${C_RESET}"
 SETUP_FLAG="$HOME/.dmas_setup_done"
 LOG_FILE="$HOME/.dmas_install.log"
 STATE_FILE="$HOME/.dmas_distro"
 WALLPAPER_URL="https://raw.githubusercontent.com/dmasntd/DmasLinux/main/dmaslinux.png"
+PANEL1_IMG_URL="${DMAS_PANEL1_IMG:-https://raw.githubusercontent.com/dmasntd/DmasLinux/main/panel1.png}"
+PANEL2_IMG_URL="${DMAS_PANEL2_IMG:-https://raw.githubusercontent.com/dmasntd/DmasLinux/main/panel2.png}"
 PKG_EDITOR="code"
 PKG_BROWSER="firefox"
 APT_IPV4_OPT=""
@@ -23,11 +28,10 @@ UPDATE_MODE=0
 if [ -f "$SETUP_FLAG" ]; then
 UPDATE_MODE=1
 fi
-
 LOCK_DIR="$HOME/.dmas_install.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-printf '%s => %s[ERROR] Một bản cài DMAS khác đang chạy (lock: %s).%s\n' "$TAG" "$C_RED" "$LOCK_DIR" "$C_RESET"
-printf '%s => Nếu chắc chắn không còn tiến trình nào: rm -rf %s\n' "$TAG" "$LOCK_DIR"
+printf '%s\n' "${C_RED}[ERROR] Một bản cài DMAS khác đang chạy (lock: $LOCK_DIR).${C_RESET}"
+printf '%s\n' "Nếu chắc chắn không còn tiến trình nào: rm -rf $LOCK_DIR"
 exit 1
 fi
 POOL_META_GLOBAL=""
@@ -38,7 +42,6 @@ pid=${m%%:*}
 kill -TERM "$pid" 2>/dev/null || true
 done
 release_lock
-printf '\n%s => %s[x] Đã dừng toàn bộ tiến trình cài đặt theo yêu cầu.%s\n' "$TAG" "$C_RED" "$C_RESET"
 exit 130
 }
 trap release_lock EXIT
@@ -47,9 +50,8 @@ if [ ! -d "$HOME" ] || [ ! -w "$HOME" ]; then
 printf '[ERROR] $HOME không tồn tại hoặc không ghi được.\n'
 exit 1
 fi
-: >>"$LOG_FILE" || { printf '[ERROR] Không tạo được log %s\n' "$LOG_FILE"; exit 1; }
+: >>"$LOG_FILE" || { printf '[ERROR] Không tạo được log: %s\n' "$LOG_FILE"; exit 1; }
 printf '\n==== DMAS installer run %s ====\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo unknown)" >>"$LOG_FILE"
-
 log() { printf '%s\n' "$*" >>"$LOG_FILE" 2>/dev/null || true; }
 info() { printf '%s => %s\n' "$TAG" "$*"; log "[INFO] $*"; }
 warn() { printf '%s => %s[!] %s%s\n' "$TAG" "$C_YELLOW" "$*" "$C_RESET"; log "[WARN] $*"; }
@@ -79,7 +81,7 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "Lệnh quan trọng '$1' k
 spinner_wait() {
 sw_pid=$1; sw_desc=$2
 while kill -0 "$sw_pid" 2>/dev/null; do
-sw_last=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr -d '\r' | cut -c1-46)
+sw_last=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr -d '\r' | cut -c1-40)
 printf '\r\033[K%s => %s | %s%s\033[K' "$TAG" "$sw_desc" "$sw_last" "$C_RESET"
 sleep 5
 done
@@ -99,66 +101,69 @@ POOL_META_GLOBAL=""
 if [ "$SPINNER_STATUS" -ne 0 ]; then fail "$rl_desc"; fi
 return 0
 }
-
-CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 2)
-[ "$CORES" -ge 1 ] 2>/dev/null || CORES=2
-PERF_CPUS=""; EFF_CPUS=""
-if [ -d /sys/devices/system/cpu ]; then
-_maxf=0
-for _f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq; do
-_v=$(cat "$_f" 2>/dev/null)
-[ "$_v" -gt "$_maxf" ] 2>/dev/null && _maxf=$_v
-done
-for _d in /sys/devices/system/cpu/cpu[0-9]*; do
-_n=${_d##*/cpu}
-_v=$(cat "$_d/cpufreq/cpuinfo_max_freq" 2>/dev/null)
-if [ "$_maxf" -gt 0 ] 2>/dev/null && [ -n "$_v" ] && [ "$((_v * 100 / _maxf))" -ge 80 ] 2>/dev/null; then
-PERF_CPUS="$PERF_CPUS,$_n"
-else
-EFF_CPUS="$EFF_CPUS,$_n"
-fi
-done
-PERF_CPUS=${PERF_CPUS#,}; EFF_CPUS=${EFF_CPUS#,}
-fi
-[ -n "$PERF_CPUS" ] || PERF_CPUS="0-$((CORES - 1))"
-ROOTED="no"
-if [ "$(id -u 2>/dev/null)" = "0" ]; then ROOTED="yes"
-elif [ -x /data/adb/magisk/magisk ] || command -v magisk >/dev/null 2>&1; then ROOTED="yes"
-elif command -v su >/dev/null 2>&1 && su -c 'id -u' 2>/dev/null | grep -q '^0'; then ROOTED="yes"
-fi
-BL_STATE="unknown"
-_fb=$(getprop ro.boot.flash.locked 2>/dev/null)
-if [ "$_fb" = "0" ]; then BL_STATE="UNLOCKED"
-elif [ "$_fb" = "1" ]; then BL_STATE="LOCKED"
-else
-_vb=$(getprop ro.boot.verifiedbootstate 2>/dev/null)
-case "$_vb" in
-green) BL_STATE="LOCKED" ;;
-orange|yellow|red) BL_STATE="UNLOCKED" ;;
-*) BL_STATE="UNKNOWN" ;;
-esac
-fi
-
+show_banner() {
+if command -v clear >/dev/null 2>&1; then clear; else printf '\033[2J\033[H'; fi
+printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
+printf '%s\n' "${C_MAGENTA}|          LINUX DMAS AUTOMATED INSTALLER           |${C_RESET}"
+printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
+printf '%s => Android Version : %s\n' "$TAG" "$(getprop ro.build.version.release 2>/dev/null || echo N/A)"
+printf '%s => Kernel Version  : %s\n' "$TAG" "$(uname -r 2>/dev/null || echo N/A)"
+printf '%s => OS Environment  : Termux (Android)\n' "$TAG"
+printf '%s => Architecture    : %s\n' "$TAG" "$(uname -m 2>/dev/null || echo N/A)"
+printf '%s => CPU Cores       : %s (perf: %s)\n' "$TAG" "$(nproc 2>/dev/null || echo '?')" "$PERF_CPUS"
+printf '%s => Bootloader      : %s\n' "$TAG" "$BL_STATE"
+printf '%s => Root            : %s\n' "$TAG" "$ROOTED"
+printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
+}
+draw_progress() {
+pct=$1; msg=$2; width=20
+filled=$((pct * width / 100)); empty=$((width - filled))
+bar=""; i=0
+while [ "$i" -lt "$filled" ]; do bar="${bar}#"; i=$((i + 1)); done
+i=0
+while [ "$i" -lt "$empty" ]; do bar="${bar}-"; i=$((i + 1)); done
+printf '\r\033[K%s => [%s%s%s] %s%3d%%%s => %s\033[K' "$TAG" "$C_GREEN" "$bar" "$C_RESET" "$C_YELLOW" "$pct" "$C_RESET" "$msg"
+if [ "$pct" -eq 100 ]; then printf '\n'; fi
+return 0
+}
+distro_exec() { proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1; }
+distro_exec_live() {
+proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1 &
+LIVE_PID=$!
+POOL_META_GLOBAL="$POOL_META_GLOBAL $LIVE_PID:live:0"
+spinner_wait "$LIVE_PID" "${LIVE_DESC:-đang xử lý trong container...}"
+POOL_META_GLOBAL=""
+return "$SPINNER_STATUS"
+}
+distro_cmd() {
+dc_desc=$1; dc_cmd=$2
+log "[DISTRO-CMD] $dc_cmd"
+if ! distro_exec "$dc_cmd"; then fail "$dc_desc"; fi
+}
+distro_cmd_live() {
+dc_desc=$1; dc_cmd=$2
+log "[DISTRO-CMD-LIVE] $dc_cmd"
+LIVE_DESC="$dc_desc"
+if ! distro_exec_live "$dc_cmd"; then LIVE_DESC=""; fail "$dc_desc"; fi
+LIVE_DESC=""
+}
+try_distro() {
+td_desc=$1; td_cmd=$2
+log "[DISTRO-TRY] $td_cmd"
+if distro_exec "$td_cmd"; then return 0; fi
+warn "$td_desc"
+return 1
+}
 pool_max() {
-pm=$CORES
-if [ "$ROOTED" = "yes" ]; then
-pm=$((CORES * 2))
-[ "$pm" -gt 16 ] && pm=16
-else
-[ "$pm" -gt 8 ] && pm=8
-fi
+pm=$(nproc 2>/dev/null || echo 2)
+if [ "$ROOTED" = "yes" ]; then pm=$((pm * 2)); [ "$pm" -gt 16 ] && pm=16; else [ "$pm" -gt 8 ] && pm=8; fi
 [ "$pm" -lt 1 ] && pm=1
 printf '%s' "$pm"
 }
-pd_serial() {
-distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends $1"
-}
+pd_serial() { distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends $1"; }
 pool_install_debs() {
 pd_desc="$1"; pd_pkgs="$2"
-if [ -z "$(printf '%s' "$pd_pkgs" | tr -d ' ')" ]; then
-info "$pd_desc: không thiếu gói nào."
-return 0
-fi
+if [ -z "$(printf '%s' "$pd_pkgs" | tr -d ' ')" ]; then info "$pd_desc: không thiếu gói nào."; return 0; fi
 PD_DIR="${TMPDIR:-$PREFIX/tmp}/dmas_pool.$$"
 rm -rf "$PD_DIR" 2>/dev/null
 mkdir -p "$PD_DIR/debs" 2>/dev/null || { warn "Không tạo được thư mục pool -> cài tuần tự."; pd_serial "$pd_pkgs"; return $?; }
@@ -171,11 +176,7 @@ return $?
 fi
 UCOUNT=$(grep -c '^http' "$PD_DIR/uris.txt" 2>/dev/null)
 [ -n "$UCOUNT" ] || UCOUNT=0
-if [ "$UCOUNT" -lt 1 ]; then
-info "$pd_desc: không có gì cần tải."
-rm -rf "$PD_DIR" 2>/dev/null
-return 0
-fi
+if [ "$UCOUNT" -lt 1 ]; then info "$pd_desc: không có gì cần tải."; rm -rf "$PD_DIR" 2>/dev/null; return 0; fi
 NW=$(pool_max)
 [ "$NW" -gt "$UCOUNT" ] && NW=$UCOUNT
 i=0
@@ -206,7 +207,7 @@ if kill -0 "$pid" 2>/dev/null; then active=$((active + 1)); fi
 done
 [ "$active" -eq 0 ] && break
 ndeb=0
-if [ -d "$PD_DIR/debs" ]; then ndeb=$(ls "$PD_DIR/debs" 2>/dev/null | grep -c '\.deb$'); fi
+[ -d "$PD_DIR/debs" ] && ndeb=$(ls "$PD_DIR/debs" 2>/dev/null | grep -c '\.deb$')
 printf '\r\033[K%s => %s [%s/%s deb, %s worker]%s\033[K' "$TAG" "$pd_desc" "$ndeb" "$UCOUNT" "$active" "$C_RESET"
 if [ "$ROOTED" = "yes" ]; then
 best=""; bestel=0; now=$(date +%s 2>/dev/null || echo 0)
@@ -214,13 +215,13 @@ for m in $POOL_META; do
 pid=${m%%:*}; rest=${m#*:}; t0=${rest##*:}
 if kill -0 "$pid" 2>/dev/null; then
 el=$((now - t0))
-if [ "$el" -gt "$bestel" ]; then bestel=$el; best=$pid; fi
+[ "$el" -gt "$bestel" ] && { bestel=$el; best=$pid; }
 fi
 done
 if [ -n "$best" ]; then
 case " $BOOSTED " in *" $best "*) : ;; *)
-if command -v renice >/dev/null 2>&1; then renice -n -10 -p "$best" >/dev/null 2>&1 || true; fi
-if command -v taskset >/dev/null 2>&1 && [ -n "$PERF_CPUS" ]; then taskset -pc "$PERF_CPUS" "$best" >/dev/null 2>&1 || true; fi
+command -v renice >/dev/null 2>&1 && renice -n -10 -p "$best" >/dev/null 2>&1
+command -v taskset >/dev/null 2>&1 && [ -n "$PERF_CPUS" ] && taskset -pc "$PERF_CPUS" "$best" >/dev/null 2>&1
 BOOSTED="$BOOSTED $best"
 ;; esac
 for m in $POOL_META; do
@@ -228,11 +229,9 @@ pid=${m%%:*}
 [ "$pid" = "$best" ] && continue
 kill -0 "$pid" 2>/dev/null || continue
 case " $BOOSTED " in *" $pid "*) continue ;; esac
-if command -v taskset >/dev/null 2>&1 && [ -n "$EFF_CPUS" ]; then taskset -pc "$EFF_CPUS" "$pid" >/dev/null 2>&1 || true; fi
+command -v taskset >/dev/null 2>&1 && [ -n "$EFF_CPUS" ] && taskset -pc "$EFF_CPUS" "$pid" >/dev/null 2>&1
 BOOSTED="$BOOSTED $pid"
 done
-fi
-fi
 sleep 3
 done
 printf '\r\033[K'
@@ -245,93 +244,6 @@ rc=$?
 rm -rf "$PD_DIR" 2>/dev/null
 return $rc
 }
-
-distro_exec() { proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1; }
-distro_exec_live() {
-proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1 &
-LIVE_PID=$!
-POOL_META_GLOBAL="$POOL_META_GLOBAL $LIVE_PID:live:0"
-spinner_wait "$LIVE_PID" "${LIVE_DESC:-đang xử lý trong container...}"
-POOL_META_GLOBAL=""
-return "$SPINNER_STATUS"
-}
-distro_cmd() {
-dc_desc=$1; dc_cmd=$2
-log "[DISTRO-CMD] $dc_cmd"
-if ! distro_exec "$dc_cmd"; then fail "$dc_desc"; fi
-}
-distro_cmd_live() {
-dc_desc=$1; dc_cmd=$2
-log "[DISTRO-CMD-LIVE] $dc_cmd"
-LIVE_DESC="$dc_desc"
-if ! distro_exec_live "$dc_cmd"; then LIVE_DESC=""; fail "$dc_desc"; fi
-LIVE_DESC=""
-}
-try_distro() {
-td_desc=$1; td_cmd=$2
-log "[DISTRO-TRY] $td_cmd"
-if distro_exec "$td_cmd"; then return 0; fi
-warn "$td_desc"
-return 1
-}
-
-add_mozilla_repo() {
-mi=1
-while [ "$mi" -le 3 ]; do
-if distro_exec 'install -d -m 0755 /etc/apt/keyrings && { wget -q -T 30 -O /tmp/mozilla.asc https://packages.mozilla.org/apt/repo/signing.key || curl -fsSL --max-time 30 -o /tmp/mozilla.asc https://packages.mozilla.org/apt/repo/signing.key; } && [ -s /tmp/mozilla.asc ] && gpg --dearmor < /tmp/mozilla.asc > /etc/apt/keyrings/mozilla.gpg.tmp && mv /etc/apt/keyrings/mozilla.gpg.tmp /etc/apt/keyrings/mozilla.gpg && chmod a+r /etc/apt/keyrings/mozilla.gpg && echo "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt/repo mozilla main" > /etc/apt/sources.list.d/mozilla.list'; then
-return 0
-fi
-warn "Thêm repo Mozilla lần $mi thất bại (key 404?), thử lại..."
-mi=$((mi + 1)); sleep 2
-done
-if distro_exec 'echo "deb [trusted=yes] https://packages.mozilla.org/apt/repo mozilla main" > /etc/apt/sources.list.d/mozilla.list'; then
-warn "Dùng repo Mozilla chế độ trusted=yes (không lấy được signing key)."
-return 0
-fi
-return 1
-}
-
-install_firefox_ubuntu() {
-if distro_exec '[ -x /usr/lib/firefox/firefox ] || [ -x /usr/lib/firefox-esr/firefox-esr ]'; then
-info "Firefox thật đã có trong container."
-return 0
-fi
-if distro_exec 'command -v firefox >/dev/null 2>&1'; then
-info "Firefox đã có sẵn và đang dùng được. Giữ nguyên, không cài lại."
-return 0
-fi
-warn "Ubuntu không có firefox trong repo -> dùng repo Mozilla."
-if add_mozilla_repo; then
-distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y" || true
-if try_distro 'Cài Firefox (Mozilla) thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends firefox"; then
-if distro_exec '[ -x /usr/lib/firefox/firefox ]'; then info "Firefox (Mozilla deb) đã cài."; return 0; fi
-fi
-fi
-warn "Không cài được Firefox thật; browser sẽ thiếu (không chặn cài đặt)."
-return 1
-}
-install_firefox_debian() {
-if distro_exec '[ -x /usr/lib/firefox/firefox ] || [ -x /usr/lib/firefox-esr/firefox-esr ]'; then
-info "Firefox thật đã có trong container."
-return 0
-fi
-if try_distro 'Cài firefox-esr thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends firefox-esr"; then
-if distro_exec '[ -x /usr/lib/firefox-esr/firefox-esr ]'; then info "Firefox ESR đã cài."; return 0; fi
-fi
-if add_mozilla_repo; then
-distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y" || true
-if try_distro 'Cài Firefox (Mozilla) thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends firefox"; then
-if distro_exec '[ -x /usr/lib/firefox/firefox ]'; then info "Firefox (Mozilla deb) đã cài."; return 0; fi
-fi
-fi
-warn "Không cài được Firefox thật; browser sẽ thiếu (không chặn cài đặt)."
-return 1
-}
-install_firefox_fedora() {
-if distro_exec 'command -v firefox >/dev/null 2>&1'; then info "Firefox đã có."; return 0; fi
-try_distro 'Cài Firefox thất bại' 'dnf install -y firefox' || true
-}
-
 install_vscode_debian() {
 VC_STEP="Kiểm tra VS Code đã tồn tại"
 log "[VSCODE] $VC_STEP"
@@ -394,49 +306,103 @@ log "[VSCODE] $VC_STEP"
 if distro_exec 'command -v code >/dev/null 2>&1'; then return 0; fi
 return 1
 }
-
 apply_vscode_proot_fix() {
-log "[VSCODE] Áp dụng fix proot: wrapper --no-sandbox + --user-data-dir + retry"
+log "[VSCODE] Áp dụng fix proot: wrapper retry + log /root/.dmas_code.log"
 if ! distro_exec 'if [ -x /usr/bin/code ]; then mkdir -p /root/.vscode-root; printf "#!/bin/sh\nexport DISPLAY=\"\${DISPLAY:-:0}\"\nexport LIBGL_ALWAYS_SOFTWARE=1\nLOG=/root/.dmas_code.log\necho \"=== run \$(date) args: \$*\" >>\"\$LOG\"\n/usr/bin/code --no-sandbox --disable-gpu --disable-dev-shm-usage --no-zygote --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\nrc=\$?\nif [ \"\$rc\" -ne 0 ]; then\n echo \"[dmas] rc=\$rc -> retry bo --no-zygote\" >>\"\$LOG\"\n /usr/bin/code --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\n rc=\$?\nfi\nif [ \"\$rc\" -ne 0 ]; then\n echo \"[dmas] rc=\$rc -> retry minimal\" >>\"\$LOG\"\n /usr/bin/code --no-sandbox --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\n rc=\$?\nfi\nexit \"\$rc\"\n" > /usr/local/bin/code && chmod 755 /usr/local/bin/code && sed -i "s|^Exec=/usr/bin/code|Exec=/usr/local/bin/code|" /usr/share/applications/code.desktop 2>/dev/null; echo DMAS_VSCODE_WRAPPER_OK; fi'; then
 warn "Không tạo được wrapper VS Code proot-fix."
 fi
 }
-
-show_banner() {
-if command -v clear >/dev/null 2>&1; then clear; else printf '\033[2J\033[H'; fi
-printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
-printf '%s\n' "${C_MAGENTA}|          LINUX DMAS AUTOMATED INSTALLER           |${C_RESET}"
-printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
-printf '%s => Android Version : %s\n' "$TAG" "$(getprop ro.build.version.release 2>/dev/null || echo N/A)"
-printf '%s => Kernel Version  : %s\n' "$TAG" "$(uname -r 2>/dev/null || echo N/A)"
-printf '%s => OS Environment  : Termux (Android)\n' "$TAG"
-printf '%s => Architecture    : %s\n' "$TAG" "$(uname -m 2>/dev/null || echo N/A)"
-printf '%s => CPU Cores       : %s (perf: %s)\n' "$TAG" "$CORES" "$PERF_CPUS"
-printf '%s => Bootloader      : %s\n' "$TAG" "$BL_STATE"
-printf '%s => Root            : %s\n' "$TAG" "$ROOTED"
-printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
-}
-draw_progress() {
-pct=$1; msg=$2; width=20
-filled=$((pct * width / 100)); empty=$((width - filled))
-bar=""; i=0
-while [ "$i" -lt "$filled" ]; do bar="${bar}#"; i=$((i + 1)); done
-i=0
-while [ "$i" -lt "$empty" ]; do bar="${bar}-"; i=$((i + 1)); done
-printf '\r\033[K%s => [%s%s%s] %s%3d%%%s => %s\033[K' "$TAG" "$C_GREEN" "$bar" "$C_RESET" "$C_YELLOW" "$pct" "$C_RESET" "$msg"
-if [ "$pct" -eq 100 ]; then printf '\n'; fi
+install_firefox_debian() {
+if distro_exec '[ -x /usr/lib/firefox/firefox ] || [ -x /usr/lib/firefox-esr/firefox-esr ]'; then
+info "Firefox thật đã có trong container."
 return 0
+fi
+if distro_exec 'dpkg-query -W -f="${Version}" firefox 2>/dev/null | grep -q snap'; then
+warn "Phát hiện gói firefox stub snap -> gỡ để cài bản thật."
+distro_exec 'export DEBIAN_FRONTEND=noninteractive; apt-get remove -y firefox || true; apt-get autoremove -y --purge snapd || true' || true
+fi
+if try_distro 'Cài firefox-esr thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y firefox-esr"; then
+if distro_exec '[ -x /usr/lib/firefox-esr/firefox-esr ]'; then info "Firefox ESR đã cài."; return 0; fi
+fi
+warn "Repo distro không có Firefox thật. Chuyển sang repo Mozilla chính chủ."
+if add_mozilla_repo; then
+distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y" || true
+if try_distro 'Cài Firefox (Mozilla) thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y firefox"; then
+if distro_exec '[ -x /usr/lib/firefox/firefox ]'; then info "Firefox (Mozilla deb) đã cài."; return 0; fi
+fi
+fi
+warn "Không cài được Firefox thật; browser sẽ thiếu (không chặn cài đặt)."
+return 1
 }
-
+add_mozilla_repo() {
+mi=1
+while [ "$mi" -le 3 ]; do
+if distro_exec 'install -d -m 0755 /etc/apt/keyrings && { wget -q -T 30 -O /tmp/mozilla.asc https://packages.mozilla.org/apt/repo/signing.key || curl -fsSL --max-time 30 -o /tmp/mozilla.asc https://packages.mozilla.org/apt/repo/signing.key; } && [ -s /tmp/mozilla.asc ] && gpg --dearmor < /tmp/mozilla.asc > /etc/apt/keyrings/mozilla.gpg.tmp && mv /etc/apt/keyrings/mozilla.gpg.tmp /etc/apt/keyrings/mozilla.gpg && chmod a+r /etc/apt/keyrings/mozilla.gpg && echo "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt/repo mozilla main" > /etc/apt/sources.list.d/mozilla.list'; then
+return 0
+fi
+warn "Thêm repo Mozilla lần $mi thất bại, thử lại..."
+mi=$((mi + 1)); sleep 2
+done
+if distro_exec 'echo "deb [trusted=yes] https://packages.mozilla.org/apt/repo mozilla main" > /etc/apt/sources.list.d/mozilla.list'; then
+warn "Dùng repo Mozilla chế độ trusted=yes (không lấy được signing key)."
+return 0
+fi
+return 1
+}
+install_firefox_fedora() {
+if distro_exec 'command -v firefox >/dev/null 2>&1'; then info "Firefox đã có."; return 0; fi
+try_distro 'Cài Firefox thất bại' 'dnf install -y firefox' || true
+}
+# ==========================================
+# PHÁT HIỆN CPU / ROOT / BOOTLOADER
+# ==========================================
+CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 2)
+[ "$CORES" -ge 1 ] 2>/dev/null || CORES=2
+PERF_CPUS=""; EFF_CPUS=""
+if [ -d /sys/devices/system/cpu ]; then
+_maxf=0
+for _f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq; do
+_v=$(cat "$_f" 2>/dev/null)
+[ "$_v" -gt "$_maxf" ] 2>/dev/null && _maxf=$_v
+done
+for _d in /sys/devices/system/cpu/cpu[0-9]*; do
+_n=${_d##*/cpu}
+_v=$(cat "$_d/cpufreq/cpuinfo_max_freq" 2>/dev/null)
+if [ "$_maxf" -gt 0 ] 2>/dev/null && [ -n "$_v" ] && [ "$((_v * 100 / _maxf))" -ge 80 ] 2>/dev/null; then
+PERF_CPUS="$PERF_CPUS,$_n"
+else
+EFF_CPUS="$EFF_CPUS,$_n"
+fi
+done
+PERF_CPUS=${PERF_CPUS#,}; EFF_CPUS=${EFF_CPUS#,}
+[ -n "$PERF_CPUS" ] || PERF_CPUS="0-$((CORES - 1))"
+ROOTED="no"
+if [ "$(id -u 2>/dev/null)" = "0" ]; then ROOTED="yes"
+elif [ -x /data/adb/magisk/magisk ] || command -v magisk >/dev/null 2>&1; then ROOTED="yes"
+elif command -v su >/dev/null 2>&1 && su -c 'id -u' 2>/dev/null | grep -q '^0'; then ROOTED="yes"
+fi
+BL_STATE="unknown"
+_fb=$(getprop ro.boot.flash.locked 2>/dev/null)
+if [ "$_fb" = "0" ]; then BL_STATE="UNLOCKED"
+elif [ "$_fb" = "1" ]; then BL_STATE="LOCKED"
+else
+_vb=$(getprop ro.boot.verifiedbootstate 2>/dev/null)
+case "$_vb" in
+green) BL_STATE="LOCKED" ;;
+orange|yellow|red) BL_STATE="UNLOCKED" ;;
+*) BL_STATE="UNKNOWN" ;;
+esac
+fi
+TAG="${C_CYAN}[DmasLinux]${C_RESET}"
 show_banner
 if [ "$UPDATE_MODE" -eq 1 ]; then
 info "Đã setup trước đó -> CHẾ ĐỘ CẬP NHẬT & SỬA CHỮA (kiểm tra trước, không cài lại thứ đã có)."
 fi
-info "Theo dõi trực tiếp: mở session mới chạy tail -f $LOG_FILE"
-draw_progress 5 "Kiểm tra môi trường Termux"
+info "Mẹo chống 'tưởng treo': mở session mới chạy tail -f $LOG_FILE"
+draw_progress 5 "Bước 1/11 - Kiểm tra môi trường Termux"
 need_cmd pkg
 need_cmd uname
-draw_progress 10 "Cài/kiểm tra gói Termux"
+draw_progress 10 "Bước 2/11 - Cài/kiểm tra gói Termux"
 run_warn "pkg update thất bại, dùng chỉ mục hiện có." pkg update -y
 if ! command -v termux-x11 >/dev/null 2>&1; then
 run "Cài x11-repo thất bại" pkg install -y x11-repo
@@ -447,7 +413,7 @@ command -v termux-x11 >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS termux-x11-ni
 command -v wget >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS wget"
 command -v curl >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS curl"
 if [ -n "$TERMUX_PKGS" ]; then
-
+# shellcheck disable=SC2086
 run "Cài gói Termux thiếu thất bại" pkg install -y $TERMUX_PKGS
 else
 info "Gói Termux đã đủ."
@@ -457,14 +423,14 @@ need_cmd termux-x11
 if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
 fail "Thiếu cả wget và curl."
 fi
-draw_progress 15 "Kiểm tra Termux:X11 Android app"
+draw_progress 15 "Bước 3/11 - Kiểm tra Termux:X11 Android app"
 if command -v pm >/dev/null 2>&1 && pm list packages 2>/dev/null | grep -q "package:com.termux.x11"; then
 info "Termux:X11 Android app đã cài."
 else
 warn "Không thấy package com.termux.x11 -> cài APK Termux:X11 nếu GUI không mở được."
 fi
 printf '\n'
-draw_progress 20 "Chọn distro (Enter/bậy = ubuntu)"
+draw_progress 20 "Bước 4/11 - Chọn distro (Enter/bậy = ubuntu)"
 printf '%s => 1) Ubuntu  2) Debian  3) Fedora\n' "$TAG"
 printf '%s => Nhập lựa chọn [1-3]: %s' "$TAG" "$C_RESET"
 read -r DISTRO_CHOICE || DISTRO_CHOICE=""
@@ -474,7 +440,7 @@ case "$DISTRO_CHOICE" in
 *) DISTRO="ubuntu" ;;
 esac
 info "Distro được chọn: $DISTRO"
-draw_progress 30 "Kiểm tra container $DISTRO"
+draw_progress 30 "Bước 5/11 - Kiểm tra container $DISTRO"
 CONTAINER_EXISTS=0
 if [ -n "$PREFIX" ] && [ -d "$PREFIX/var/lib/proot-distro/installed-rootfs/$DISTRO" ]; then CONTAINER_EXISTS=1; fi
 if [ "$CONTAINER_EXISTS" -eq 0 ] && proot-distro login "$DISTRO" -- /bin/sh -c true >/dev/null 2>&1; then CONTAINER_EXISTS=1; fi
@@ -487,28 +453,27 @@ if ! proot-distro login "$DISTRO" -- /bin/sh -c true >>"$LOG_FILE" 2>&1; then
 fail "Container $DISTRO không đăng nhập được."
 fi
 printf '%s\n' "$DISTRO" > "$STATE_FILE"
-draw_progress 45 "Sửa lỗi kẹt + cài gói nền + theme ($DISTRO)"
+draw_progress 45 "Bước 6/11 - Sửa kẹt + cài gói nền + theme ($DISTRO)"
 if [ "$DISTRO" = "fedora" ]; then
-try_distro 'Sửa transaction dnf kẹt lần trước thất bại' 'dnf -y complete-transaction || true; dnf clean all || true; dnf makecache --refresh || true'
+try_distro 'Sửa transaction dnf kẹt' 'dnf -y complete-transaction || true; dnf clean all || true; dnf makecache --refresh || true'
 distro_cmd_live 'Cài gói nền Fedora thất bại' 'miss=""; for p in xfce4-session xfwm4 xfce4-panel xfdesktop xfce4-terminal Thunar dbus-x11 curl wget git gnupg glibc-langpack-en; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then case "$miss" in *xfce4-session*) dnf -y groupinstall "Xfce Desktop" || dnf -y install $miss || true ;; *) dnf -y --setopt=max_parallel_downloads=8 install $miss || true ;; esac; else echo "DMAS: gói nền Fedora đã đủ."; fi'
-try_distro 'Cài bộ theme Fedora thất bại' 'miss=""; for p in arc-theme numix-gtk-theme materia-gtk-theme greybird-gtk-theme gnome-themes-extra papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme adwaita-icon-theme breeze-icon-theme capitaine-cursors openzone-cursors comixcursors google-noto-emoji-color-fonts jetbrains-mono-fonts firacode-fonts; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then dnf -y --setopt=max_parallel_downloads=8 install $miss || for p in $miss; do dnf -y install "$p" || true; done; else echo "DMAS: theme Fedora đã đủ."; fi'
+try_distro 'Cài bộ theme Fedora thất bại' 'miss=""; for p in arc-theme numix-gtk-theme materia-gtk-theme greybird-gtk-theme gnome-themes-extra papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme adwaita-icon-theme breeze-icon-theme capitaine-cursors openzone-cursors comixcursors xcursor-themes google-noto-emoji-color-fonts jetbrains-mono-fonts firacode-fonts; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then dnf -y --setopt=max_parallel_downloads=8 install $miss || for p in $miss; do dnf -y install "$p" || true; done; else echo "DMAS: theme Fedora đã đủ."; fi'
 install_firefox_fedora
-try_distro 'Thiết lập locale Fedora thất bại' 'if ! locale -a 2>/dev/null | grep -qi "^en_US.utf8"; then dnf install -y glibc-langpack-en || true; fi; printf "LANG=en_US.UTF-8\n" > /etc/locale.conf; printf "export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n" > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true'
+try_distro 'Thiết lập locale Fedora' 'if ! locale -a 2>/dev/null | grep -qi "^en_US.utf8"; then dnf install -y glibc-langpack-en || true; fi; printf "LANG=en_US.UTF-8\n" > /etc/locale.conf; printf "export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n" > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true'
 else
-try_distro 'Sửa dpkg/apt kẹt lần trước thất bại' 'if command -v flock >/dev/null 2>&1; then i=0; while [ "$i" -lt 60 ]; do if flock -n /var/lib/dpkg/lock-frontend true 2>/dev/null; then break; fi; sleep 2; i=$((i+2)); done; fi; holder=0; for c in /proc/[0-9]*/comm; do if [ -r "$c" ] && grep -q -e "^apt-get" -e "^dpkg" "$c" 2>/dev/null; then holder=1; break; fi; done; if [ "$holder" -eq 0 ]; then rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock 2>/dev/null || true; else echo "DMAS: dpkg lock vẫn được giữ bởi process sống."; fi; dpkg --configure -a || true; apt-get install -f -y || true'
-try_distro 'Cập nhật apt thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y"
-miss=$(distro_exec "miss=\"\"; for p in dbus-x11 xfce4 xfce4-terminal thunar curl wget ca-certificates gnupg apt-transport-https locales git; do dpkg -s \"\$p\" >/dev/null 2>&1 || miss=\"\$miss \$p\"; done; echo \$miss" | tail -n 1)
+try_distro 'Sửa dpkg/apt kẹt lần trước' 'if command -v flock >/dev/null 2>&1; then i=0; while [ "$i" -lt 60 ]; do if flock -n /var/lib/dpkg/lock-frontend true 2>/dev/null; then break; fi; sleep 2; i=$((i+2)); done; fi; holder=0; for c in /proc/[0-9]*/comm; do if [ -r "$c" ] && grep -q -e "^apt-get" -e "^dpkg" "$c" 2>/dev/null; then holder=1; break; fi; done; if [ "$holder" -eq 0 ]; then rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock 2>/dev/null || true; else echo "DMAS: dpkg lock còn được giữ bởi process sống."; fi; dpkg --configure -a || true; apt-get install -f -y || true'
+try_distro 'Cập nhật apt' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y"
+miss=$(distro_exec 'miss=""; for p in dbus-x11 xfce4 xfce4-terminal thunar curl wget ca-certificates gnupg apt-transport-https locales git libglib2.0-bin; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
 if ! pool_install_debs "Gói nền $DISTRO" "$miss"; then fail "Cài gói nền $DISTRO thất bại"; fi
 miss2=$(distro_exec 'dpkg -s xfce4-goodies >/dev/null 2>&1 || echo xfce4-goodies' | tail -n 1)
 pool_install_debs "xfce4-goodies $DISTRO" "$miss2" || true
-miss3=$(distro_exec 'miss=""; for p in arc-theme numix-gtk-theme greybird-gtk-theme gnome-themes-extra gtk2-engines-murrine gtk2-engines-pixbuf papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme elementary-xfce-icon-theme adwaita-icon-theme tango-icon-theme gnome-icon-theme suru-icon-theme faenza-icon-theme breeze-icon-theme humanity-icon-theme comixcursors fonts-ubuntu fonts-noto-color-emoji fonts-firacode fonts-jetbrains-mono; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
-pool_install_debs "Theme/icon $DISTRO" "$miss3" || true
-if [ "$DISTRO" = "debian" ]; then install_firefox_debian; else install_firefox_ubuntu; fi
-try_distro 'Thiết lập locale Debian/Ubuntu thất bại' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
+miss3=$(distro_exec 'miss=""; for p in arc-theme numix-gtk-theme greybird-gtk-theme gnome-themes-extra gtk2-engines-murrine gtk2-engines-pixbuf papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme elementary-xfce-icon-theme adwaita-icon-theme tango-icon-theme gnome-icon-theme suru-icon-theme faenza-icon-theme breeze-icon-theme humanity-icon-theme xcursor-themes comixcursors fonts-ubuntu fonts-noto-color-emoji fonts-firacode fonts-jetbrains-mono; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
+pool_install_debs "Theme/icon/cursor $DISTRO" "$miss3" || true
+install_firefox_debian || true
+try_distro 'Thiết lập locale Debian/Ubuntu' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
 fi
 info "Locale UTF-8 sẵn sàng."
-
-draw_progress 60 "Tải theme/icon/cursor mở rộng từ GitHub"
+draw_progress 60 "Bước 7/11 - Tải theme/icon/cursor GitHub (main/master fallback)"
 FETCH_SRC="$HOME/.dmas_fetch_themes.src.$$"
 cat <<'FETCHEOF' > "$FETCH_SRC" || fail "Không ghi được fetcher template"
 #!/bin/sh
@@ -516,49 +481,55 @@ LOG=/root/.dmas_themes.log
 log() { printf '[DMAS-THEMES] %s\n' "$*" >>"$LOG" 2>/dev/null || true; }
 get() {
 u="$1"; d="$2"
-if command -v wget >/dev/null 2>&1; then wget -q -T 60 -O "$d" "$u" && return 0; fi
-if command -v curl >/dev/null 2>&1; then curl -fsSL --max-time 60 -o "$d" "$u" && return 0; fi
+if command -v wget >/dev/null 2>&1; then wget -q -T 60 -O "$d" "$u" || return 1; elif command -v curl >/dev/null 2>&1; then curl -fsSL --max-time 60 -o "$d" "$u" || return 1; else return 1; fi
+[ -s "$d" ] || return 1
+case "$(head -c 64 "$d" 2>/dev/null)" in
+*"<html"*|*"<!DOCTYPE"*|*"404:"*) log "URL trả về HTML/404: $u"; rm -f "$d"; return 1 ;;
+esac
+return 0
+}
+fetch_ref() {
+base="$1"; d="$2"
+for ref in main master; do
+if get "$base/refs/heads/$ref.tar.gz" "$d"; then log "OK ref=$ref : $base"; return 0; fi
+done
+log "FAIL cả main+master: $base"
 return 1
 }
-mark_done() { touch "/root/.dmas_done_$1" 2>/dev/null || true; }
-is_done() { [ -f "/root/.dmas_done_$1" ]; }
 install_gtk() {
-key="$1"; u="$2"
-is_done "$key" && return 0
-n=$(printf '%s' "$u" | sed 's|.*/||; s|\.tar.*||')
-t="/tmp/dmas_theme_$n.tar.gz"
-log "fetch gtk: $u"
-get "$u" "$t" || { log "FAIL fetch $u"; return 1; }
-ex="/tmp/dmas_ex_$n"; rm -rf "$ex"; mkdir -p "$ex"
-tar -xzf "$t" -C "$ex" || { log "FAIL extract $u"; rm -rf "$ex" "$t"; return 1; }
-find "$ex" -maxdepth 4 -type d -name gtk-3.0 2>/dev/null | while IFS= read -r g; do
+key="$1"; base="$2"
+[ -f "/root/.dmas_done_$key" ] && return 0
+t="/tmp/dmas_theme_$key.tar.gz"; ex="/tmp/dmas_ex_$key"
+fetch_ref "$base" "$t" || return 1
+rm -rf "$ex"; mkdir -p "$ex"
+tar -xzf "$t" -C "$ex" || { log "FAIL extract $key"; rm -rf "$ex" "$t"; return 1; }
+cnt=0
+find "$ex" -maxdepth 6 -type d -name gtk-3.0 2>/dev/null | while IFS= read -r g; do
 td=$(dirname "$g"); name=$(basename "$td")
 if [ ! -d "/usr/share/themes/$name" ]; then
 cp -r "$td" "/usr/share/themes/$name" 2>/dev/null && log "installed gtk theme: $name"
 fi
 done
 rm -rf "$ex" "$t"
-mark_done "$key"
+touch "/root/.dmas_done_$key" 2>/dev/null || true
 return 0
 }
 install_icons() {
-key="$1"; u="$2"; kind="$3"
-is_done "$key" && return 0
-n=$(printf '%s' "$u" | sed 's|.*/||; s|\.tar.*||')
-t="/tmp/dmas_icons_$n.tar.gz"
-log "fetch $kind: $u"
-get "$u" "$t" || { log "FAIL fetch $u"; return 1; }
-ex="/tmp/dmas_exi_$n"; rm -rf "$ex"; mkdir -p "$ex"
-tar -xzf "$t" -C "$ex" || { log "FAIL extract $u"; rm -rf "$ex" "$t"; return 1; }
+key="$1"; base="$2"; kind="$3"
+[ -f "/root/.dmas_done_$key" ] && return 0
+t="/tmp/dmas_icons_$key.tar.gz"; ex="/tmp/dmas_exi_$key"
+fetch_ref "$base" "$t" || return 1
+rm -rf "$ex"; mkdir -p "$ex"
+tar -xzf "$t" -C "$ex" || { log "FAIL extract $key"; rm -rf "$ex" "$t"; return 1; }
 if [ "$kind" = "cursor" ]; then
-find "$ex" -maxdepth 4 -type d -name cursors 2>/dev/null | while IFS= read -r g; do
+find "$ex" -maxdepth 6 -type d -name cursors 2>/dev/null | while IFS= read -r g; do
 td=$(dirname "$g"); name=$(basename "$td")
 if [ ! -d "/usr/share/icons/$name" ]; then
 cp -r "$td" "/usr/share/icons/$name" 2>/dev/null && log "installed cursor: $name"
 fi
 done
 else
-find "$ex" -maxdepth 4 -type f -name index.theme 2>/dev/null | while IFS= read -r g; do
+find "$ex" -maxdepth 6 -type f -name index.theme 2>/dev/null | while IFS= read -r g; do
 td=$(dirname "$g"); name=$(basename "$td")
 case "$td" in */cursors|*/cursors/*) continue ;; esac
 grep -q '^Directories=' "$g" 2>/dev/null || continue
@@ -568,18 +539,28 @@ fi
 done
 fi
 rm -rf "$ex" "$t"
-mark_done "$key"
+touch "/root/.dmas_done_$key" 2>/dev/null || true
 return 0
 }
-install_gtk nordic https://github.com/EliverLara/Nordic/archive/refs/heads/master.tar.gz
-install_gtk dracula https://github.com/dracula/gtk/archive/refs/heads/master.tar.gz
-install_gtk tokyonight https://github.com/Fausto-Korps/tokyo-night-gtk/archive/refs/heads/master.tar.gz
-install_gtk sweet https://github.com/EliverLara/Sweet/archive/refs/heads/master.tar.gz
-install_icons whitesur https://github.com/vinceliuice/WhiteSur-icon-theme/archive/refs/heads/master.tar.gz icon
-install_icons tela https://github.com/vinceliuice/Tela-circle-icon-theme/archive/refs/heads/master.tar.gz icon
-install_icons beautyline https://github.com/vinceliuice/BeautyLine-icon-theme/archive/refs/heads/master.tar.gz icon
-install_icons mcmojave https://github.com/vinceliuice/McMojave-cursors/archive/refs/heads/master.tar.gz cursor
-install_icons apple https://github.com/ful1e5/Apple_Cursors/archive/refs/heads/main.tar.gz cursor
+install_gtk nordic https://github.com/EliverLara/Nordic
+install_gtk dracula https://github.com/dracula/gtk
+install_gtk tokyonight https://github.com/Fausto-Korps/tokyo-night-gtk
+install_gtk sweet https://github.com/EliverLara/Sweet
+install_icons whitesur https://github.com/vinceliuice/WhiteSur-icon-theme icon
+install_icons tela https://github.com/vinceliuice/Tela-circle-icon-theme icon
+install_icons beautyline https://github.com/vinceliuice/BeautyLine-icon-theme icon
+install_icons mcmojave https://github.com/vinceliuice/McMojave-cursors cursor
+install_icons apple https://github.com/ful1e5/Apple_Cursors cursor
+# Sinh index.theme cho cursor theme thiếu (comixcursors...) để XFCE liệt kê
+for d in /usr/share/icons/ComixCursors*; do
+[ -d "$d/cursors" ] || continue
+[ -f "$d/index.theme" ] && continue
+nm=$(basename "$d")
+printf '[Icon Theme]\nName=%s\nType=CursorTheme\nSize=32\nDirectories=cursors\n\n[cursors]\nSize=32\n' "$nm" > "$d/index.theme" 2>/dev/null || true
+log "created index.theme for $nm"
+done
+log "Themes hien co: $(ls /usr/share/themes 2>/dev/null | tr '\n' ' ')"
+log "Cursor themes: $(ls -d /usr/share/icons/*/cursors 2>/dev/null | tr '\n' ' ')"
 log "hoàn tất fetch themes"
 FETCHEOF
 if command -v tr >/dev/null 2>&1; then
@@ -594,7 +575,7 @@ distro_cmd 'chmod fetcher thất bại' 'chmod 755 /root/.dmas_fetch_themes.sh'
 LIVE_DESC="Tải theme/icon/cursor GitHub"
 distro_exec_live '/root/.dmas_fetch_themes.sh' || warn "Fetch theme GitHub lỗi (xem /root/.dmas_themes.log); theme apt vẫn dùng được."
 LIVE_DESC=""
-draw_progress 75 "Cài đặt VS Code (editor chính)"
+draw_progress 75 "Bước 8/11 - Cài đặt VS Code (editor chính)"
 VSCODE_OK=0; VS_ATTEMPT=1
 while [ "$VS_ATTEMPT" -le 2 ]; do
 if [ "$DISTRO" = "fedora" ]; then
@@ -621,9 +602,9 @@ PKG_EDITOR="geany"
 fi
 if distro_exec 'command -v code >/dev/null 2>&1'; then
 apply_vscode_proot_fix
-info "VS Code có wrapper proot-fix. Không mở được thì xem: proot-distro login $DISTRO -- cat /root/.dmas_code.log"
+info "VS Code có wrapper proot-fix; gõ 'code' hoặc mở từ menu."
 fi
-draw_progress 85 "Wallpaper, theme, panel, icon desktop, autostart"
+draw_progress 85 "Bước 9/11 - Wallpaper, theme, panel, icon desktop, autostart"
 distro_cmd 'Tạo thư mục UI thất bại' 'mkdir -p /root/.config/autostart /root/Pictures /root/Desktop'
 UI_SRC="$HOME/.dmas_ui_fix.src.$$"
 UI_OUT="$HOME/.dmas_ui_fix.out.$$"
@@ -631,7 +612,7 @@ DESKTOP_SRC="$HOME/.dmas_ui_desktop.src.$$"
 DESKTOP_OUT="$HOME/.dmas_ui_desktop.out.$$"
 cat <<'UIEOF' > "$UI_SRC" || fail "Không ghi được UI template"
 #!/bin/sh
-
+# DMAS UI fix - generated by linuxdmas.sh
 DISPLAY="${DISPLAY:-:0}"
 export DISPLAY
 WALLPAPER_DIR="/root/Pictures"
@@ -649,7 +630,7 @@ verify_image() {
 file="$1"; ext="$2"
 [ -s "$file" ] || return 1
 if ! command -v od >/dev/null 2>&1 || ! command -v tr >/dev/null 2>&1; then return 0; fi
-magic=$(od -An -N4 -tx1 "$file" 2>/dev/null | tr -d ' \n')
+magic=$(od -An -N4 -tx1 "$file" 2>/dev/null | tr -d '\n')
 case "$ext" in
 png) [ "$magic" = "89504e47" ] && return 0 ;;
 jpg|jpeg) case "$magic" in ffd8ff*) return 0 ;; esac ;;
@@ -675,18 +656,28 @@ if fetch_once "$PRIMARY_URL" "$PRIMARY_FILE" png; then WALLPAPER="$PRIMARY_FILE"
 elif fetch_once "$FALLBACK_URL" "$FALLBACK_FILE" jpg; then WALLPAPER="$FALLBACK_FILE"; ui_log "wallpaper chính lỗi, dùng fallback"; fi
 HAS_P1="no"; fetch_once "$P1_URL" "$P1_FILE" png && HAS_P1="yes"
 HAS_P2="no"; fetch_once "$P2_URL" "$P2_FILE" png && HAS_P2="yes"
+# gio (de danh dau trusted .desktop) - tu cai neu thieu
+if ! command -v gio >/dev/null 2>&1; then
+(apt-get install -y libglib2.0-bin >/dev/null 2>&1 || dnf install -y glib2 >/dev/null 2>&1) || true
+fi
+# index.theme cho cursor theme thieu (comixcursors...)
+for d in /usr/share/icons/ComixCursors*; do
+[ -d "$d/cursors" ] || continue
+[ -f "$d/index.theme" ] && continue
+nm=$(basename "$d")
+printf '[Icon Theme]\nName=%s\nType=CursorTheme\nSize=32\nDirectories=cursors\n\n[cursors]\nSize=32\n' "$nm" > "$d/index.theme" 2>/dev/null || true
+done
 i=0
 while [ "$i" -lt 30 ]; do
 if xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then break; fi
 sleep 1; i=$((i + 1))
 done
 if command -v xfconf-query >/dev/null 2>&1; then
-
 if [ -n "$WALLPAPER" ]; then
 for prop in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$'); do
 xfconf-query -c xfce4-desktop -p "$prop" -s "$WALLPAPER" 2>/dev/null || true
 done
-
+# shellcheck disable=SC2086
 MONS=$(xrandr 2>/dev/null | grep ' connected' | cut -d' ' -f1)
 for mon in $MONS monitor0; do
 xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor$mon/workspace0/last-image" -s "$WALLPAPER" --create -t string 2>/dev/null || true
@@ -695,10 +686,6 @@ xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor$mon/image-show" -s t
 done
 ui_log "wallpaper: $WALLPAPER"
 fi
-
-xfconf-query -c xfce4-desktop -p /desktop-icons/style -s 2 --create -t int 2>/dev/null || true
-xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -s 48 --create -t uint 2>/dev/null || true
-
 pick_dir() {
 pd_dir="$1"; shift
 for t in "$@"; do
@@ -706,56 +693,49 @@ if [ -d "$pd_dir/$t" ]; then printf '%s' "$t"; return 0; fi
 done
 printf ''
 }
-GTK_T=$(pick_dir /usr/share/themes Tokyo-Night Tokyo-Night-Dark Dracula Nordic Sweet Catppuccin-Mocha Arc-Dark Materia-dark Numix Greybird Adwaita)
+GTK_T=$(pick_dir /usr/share/themes Tokyo-Night Tokyo-Night-Dark Dracula Nordic Sweet Catppuccin-Mocha Arc-Dark Numix Greybird Adwaita)
 ICO_T=$(pick_dir /usr/share/icons WhiteSur Tela-circle BeautyLine Papirus-Dark Numix-Circle Moka Adwaita)
-CUR_T=$(pick_dir /usr/share/icons McMojave-cursors Apple-Cursors ComixCursors-Opaque-Black OpenZone_Black Adwaita)
+WM_T=$(pick_dir /usr/share/themes Tokyo-Night Tokyo-Night-Dark Dracula Nordic Sweet Arc-Dark Numix Greybird Adwaita)
+CUR_T=$(pick_dir /usr/share/icons McMojave-cursors Apple-Cursors ComixCursors-Opaque-Black Adwaita)
 if [ -n "$GTK_T" ]; then
 xfconf-query -c xsettings -p /Net/ThemeName -s "$GTK_T" --create -t string 2>/dev/null || true
-xfconf-query -c xfwm4 -p /general/theme -s "$GTK_T" --create -t string 2>/dev/null || true
+xfconf-query -c xfwm4 -p /general/theme -s "$WM_T" --create -t string 2>/dev/null || true
 fi
 if [ -n "$ICO_T" ]; then xfconf-query -c xsettings -p /Net/IconThemeName -s "$ICO_T" --create -t string 2>/dev/null || true; fi
-if [ -n "$CUR_T" ]; then xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "$CUR_T" --create -t string 2>/dev/null || true; fi
+if [ -n "$CUR_T" ]; then
+xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "$CUR_T" --create -t string 2>/dev/null || true
 xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 24 --create -t int 2>/dev/null || true
-ui_log "theme: GTK=$GTK_T ICON=$ICO_T CURSOR=$CUR_T"
-
+fi
+ui_log "theme: GTK=$GTK_T ICON=$ICO_T WM=$WM_T CURSOR=$CUR_T"
 P1=panel-1
 xfconf-query -c xfce4-panel -p "/panels/$P1/position" -s "p=10;x=0;y=0" --create -t string 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P1/length" -s 100 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P1/length" -s 100 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/length-adjust" -s true --create -t bool 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P1/size" -s 42 --create -t uint 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P1/nrows" -s 1 --create -t uint 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P1/autohide-behavior" -s 2 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P1/autohide-behavior" -s 2 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/position-locked" -s true --create -t bool 2>/dev/null || true
 if [ "$HAS_P1" = "yes" ]; then
-xfconf-query -c xfce4-panel -p "/panels/$P1/background-style" -s 2 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P1/background-style" -s 2 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/background-image" -s "$P1_FILE" --create -t string 2>/dev/null || true
 else
-xfconf-query -c xfce4-panel -p "/panels/$P1/background-style" -s 1 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P1/background-style" -s 1 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/background-rgba" --create --force-array -t double -s 0.08 -s 0.08 -s 0.10 -s 0.85 2>/dev/null || true
 fi
-
 P2=panel-2
 xfconf-query -c xfce4-panel -p "/panels/$P2/position" -s "p=7;x=0;y=0" --create -t string 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P2/length" -s 30 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P2/length" -s 30 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/length-adjust" -s false --create -t bool 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P2/size" -s 42 --create -t uint 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P2/nrows" -s 1 --create -t uint 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P2/autohide-behavior" -s 0 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P2/autohide-behavior" -s 0 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/position-locked" -s true --create -t bool 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/plugins" --create --force-array -t string -s plugin-1 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/plugin-1" -s "clock" --create -t string 2>/dev/null || true
-xfconf-query -c xfce4-panel -p "/panels/$P2/plugin-1/digital-format" -s "%H:%M" --create -t string 2>/dev/null || true
 if [ "$HAS_P2" = "yes" ]; then
-xfconf-query -c xfce4-panel -p "/panels/$P2/background-style" -s 2 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P2/background-style" -s 2 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/background-image" -s "$P2_FILE" --create -t string 2>/dev/null || true
 else
-xfconf-query -c xfce4-panel -p "/panels/$P2/background-style" -s 1 --create -t uint 2>/dev/null || true
+xfconf-query -c xfce4-panel -p "/panels/$P2/background-style" -s 1 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/background-rgba" --create --force-array -t double -s 0.08 -s 0.08 -s 0.10 -s 0.85 2>/dev/null || true
 fi
-
-xfce4-panel -r 2>/dev/null || true
-ui_log "panel1=bottom+img($HAS_P1), panel2=top-right+clock+img($HAS_P2)"
-
+# Icon desktop + danh dau TRUSTED (het dialog "Untrusted application launcher")
 if command -v code >/dev/null 2>&1; then
 cat > /root/Desktop/code.desktop <<'DESK1'
 [Desktop Entry]
@@ -770,7 +750,6 @@ StartupNotify=true
 Categories=Development;IDE;
 DESK1
 chmod +x /root/Desktop/code.desktop 2>/dev/null || true
-gio set /root/Desktop/code.desktop metadata::trusted true 2>/dev/null || true
 fi
 FFBIN=""
 if [ -x /usr/lib/firefox/firefox ]; then FFBIN="/usr/lib/firefox/firefox"
@@ -790,9 +769,16 @@ StartupNotify=true
 Categories=Network;WebBrowser;
 DESK2
 chmod +x /root/Desktop/firefox.desktop 2>/dev/null || true
-gio set /root/Desktop/firefox.desktop metadata::trusted true 2>/dev/null || true
 fi
-
+for df in /root/Desktop/code.desktop /root/Desktop/firefox.desktop; do
+[ -f "$df" ] || continue
+if command -v gio >/dev/null 2>&1; then
+gio set "$df" metadata::trusted true 2>/dev/null || true
+fi
+setfattr -n user.metadata::trusted -v 1 "$df" 2>/dev/null || true
+setfattr -n user.trusted -v 1 "$df" 2>/dev/null || true
+done
+ui_log "desktop icons trusted: code.desktop firefox.desktop"
 cat > /root/.dmas_theme.sh <<'SWEOF'
 #!/bin/sh
 echo "=== GTK themes ==="; ls /usr/share/themes 2>/dev/null
@@ -807,13 +793,10 @@ printf 'Cursor theme moi (Enter = giu): '; read -r CT
 echo "Da ap dung."
 SWEOF
 chmod 755 /root/.dmas_theme.sh 2>/dev/null || true
-else
-ui_log "xfconf-query không tồn tại, bỏ qua UI."
-fi
 exit 0
 UIEOF
 log "[RUN] sed thay URL wallpaper + panel images"
-if ! sed -e "s#__WALLPAPER_URL__#$WALLPAPER_URL#" -e "s#__PANEL1_URL__#https://raw.githubusercontent.com/dmasntd/DmasLinux/main/panel1.png#" -e "s#__PANEL2_URL__#https://raw.githubusercontent.com/dmasntd/DmasLinux/main/panel2.png#" "$UI_SRC" > "$UI_OUT" 2>>"$LOG_FILE"; then
+if ! sed -e "s#__WALLPAPER_URL__#$WALLPAPER_URL#" -e "s#__PANEL1_URL__#$PANEL1_IMG_URL#" -e "s#__PANEL2_URL__#$PANEL2_IMG_URL#" "$UI_SRC" > "$UI_OUT" 2>>"$LOG_FILE"; then
 fail "sed UI thất bại"
 fi
 if command -v tr >/dev/null 2>&1; then
@@ -843,8 +826,7 @@ fail "Không ghi được autostart desktop"
 fi
 distro_cmd 'chmod desktop file thất bại' 'chmod 644 /root/.config/autostart/dmas_ui.desktop'
 rm -f "$UI_SRC" "$UI_OUT" "$DESKTOP_SRC" "$DESKTOP_OUT" 2>/dev/null || true
-
-draw_progress 92 "Tạo startdmas.sh + unidmas.sh"
+draw_progress 92 "Bước 10/11 - Tạo startdmas.sh + unidmas.sh"
 START_SRC="$HOME/.startdmas.src.$$"
 START_TMP="$HOME/.startdmas.tmp.$$"
 cat <<'START_EOF' > "$START_SRC" || fail "Không ghi được startdmas template"
@@ -912,10 +894,8 @@ while [ "$i" -lt 20 ]; do
 [ -e "$SOCKET" ] && break
 sleep 1; i=$((i + 1))
 done
-if [ ! -e "$SOCKET" ]; then
-dmas "ERROR: không thấy X11 socket $SOCKET."
-return 1
-fi
+if [ ! -e "$SOCKET" ]; then dmas "ERROR: không thấy X11 socket $SOCKET."; return 1; fi
+dmas "Đã khởi động thành công."
 return 0
 }
 run_xfce() {
@@ -924,11 +904,8 @@ proot-distro login "$DISTRO" --shared-tmp --env DISPLAY="$DISPLAY_NUM" -- /bin/s
 return $?
 }
 start_stack || { dmas "ERROR: khởi động X11 thất bại."; exit 1; }
-dmas "Đã khởi động thành công."
 run_xfce
 RC=$?
-[ "$RC" -eq 70 ] && dmas "ERROR: DBus thiếu/không khởi động được."
-[ "$RC" -eq 71 ] && dmas "ERROR: XFCE4 thiếu/không khởi động được."
 while :; do
 dmas "Đang thoát..."
 dmas "Đang dừng tiến trình..."
@@ -939,15 +916,7 @@ if ! read -r CHOICE </dev/tty 2>/dev/null; then read -r CHOICE; fi
 case "$CHOICE" in
 2)
 dmas "Đang khởi động lại..."
-if start_stack; then
-dmas "Đã khởi động thành công."
-run_xfce
-RC=$?
-continue
-else
-dmas "Khởi động lại thất bại."
-continue
-fi
+if start_stack; then run_xfce; RC=$?; continue; else dmas "Khởi động lại thất bại."; continue; fi
 ;;
 *) break ;;
 esac
@@ -991,26 +960,20 @@ echo "!!! GỠ CÀI ĐẶT LINUX DMAS (container: $DISTRO) !!!"
 printf 'Nhập đúng chữ "yes" để xác nhận: '
 read -r CONF
 [ "$CONF" = "yes" ] || { echo "Hủy lệnh gõ."; exit 1; }
-echo "[*] Dung X11..."
+echo "[*] Dừng X11..."
 pkill -f "termux-x11 :0" 2>/dev/null
 pkill -f "Xwayland :0" 2>/dev/null
 sleep 1
-if command -v proot-distro >/dev/null 2>&1; then
-echo "[*] Gỡ container $DISTRO..."
-proot-distro remove "$DISTRO" 2>/dev/null || true
-fi
-if command -v pkg >/dev/null 2>&1; then
-echo "[*] Gỡ termux-x11-nightly..."
-pkg remove -y termux-x11-nightly >/dev/null 2>&1 || true
-fi
+command -v proot-distro >/dev/null 2>&1 && proot-distro remove "$DISTRO" 2>/dev/null || true
+command -v pkg >/dev/null 2>&1 && pkg remove -y termux-x11-nightly >/dev/null 2>&1 || true
 H="$HOME"
-echo "[*] Xóa file DMAS..."
+echo "[*] Xoa file DMAS..."
 rm -f "$H/startdmas.sh" "$H/.dmas_setup_done" "$H/.dmas_install.log" "$H/.dmas_start.log" "$H/.dmas_distro" "$H/.dmas_themes.log"
 rm -f "$H/.dmas_ui_fix.src."* "$H/.dmas_ui_fix.out."* "$H/.dmas_ui_desktop.src."* "$H/.dmas_ui_desktop.out."*
 rm -f "$H/.startdmas.src."* "$H/.startdmas.tmp."* "$H/.unidmas.src."* "$H/.unidmas.tmp."*
 rm -rf "$H/.dmas_install.lock"
 [ "$(pwd)" != "$H" ] && rm -f "./startdmas.sh" 2>/dev/null
-echo "[+] Đă gỡ sạch Linux DMAS."
+echo "[+] Đã gỡ sạch Linux DMAS."
 rm -f "$H/unidmas.sh"
 UNI_EOF
 log "[RUN] sed DISTRO vào unidmas.sh"
@@ -1035,10 +998,7 @@ if [ -f "$HOME/unidmas.sh" ]; then
 sh -n "$HOME/unidmas.sh" >>"$LOG_FILE" 2>&1 || fail "unidmas.sh không pass sh -n"
 info "Đã tạo uninstaller: ~/unidmas.sh"
 fi
-# ==========================================
-# CHECK CUỐI + FLAG + AUTO-LAUNCH
-# ==========================================
-draw_progress 97 "Kiểm tra cuối"
+draw_progress 97 "Bước 11/11 - Kiểm tra cuối"
 if [ -f "$0" ]; then
 if sh -n "$0" >>"$LOG_FILE" 2>&1; then info "sh -n linuxdmas.sh pass"; else warn "sh -n linuxdmas.sh báo lỗi."; fi
 fi
@@ -1046,7 +1006,7 @@ if command -v shellcheck >/dev/null 2>&1; then
 shellcheck "$0" >>"$LOG_FILE" 2>&1 || warn "shellcheck có cảnh báo (không chặn)."
 shellcheck "$START_SCRIPT" >>"$LOG_FILE" 2>&1 || warn "shellcheck startdmas có cảnh báo (không chặn)."
 else
-info "shellcheck không tồn tại; bỏ qua."
+info "shellcheck không tồn tại; bỏ qua lint bổ sung."
 fi
 [ -f "$START_SCRIPT" ] || fail "startdmas.sh không tồn tại."
 touch "$SETUP_FLAG" || fail "Không tạo được success flag"
