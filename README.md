@@ -42,5 +42,5 @@
 - [Tài liệu]
 
 # Phiên bản
-- DmasLinux-v1:
-- DmasLinux-v2: 
+- DmasLinux-v1: [Download](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmas.sh)
+- DmasLinux-v2: [Download](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh)
