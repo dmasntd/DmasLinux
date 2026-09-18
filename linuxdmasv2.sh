@@ -1,9 +1,5 @@
 #!/bin/sh
-# ==========================================
-# LINUX DMAS AUTOMATED INSTALLER (POSIX)
-# ==========================================
-# Chạy lại nhiều lần an toàn; DMAS_FORCE_IPV4=1 sh linuxdmas.sh nếu mạng kẹt IPv6
-# ==========================================
+
 ESC=$(printf '\033')
 C_CYAN="${ESC}[38;2;0;220;255m"
 C_GREEN="${ESC}[38;2;50;255;120m"
@@ -27,9 +23,7 @@ UPDATE_MODE=0
 if [ -f "$SETUP_FLAG" ]; then
 UPDATE_MODE=1
 fi
-# ==========================================
-# LOCK + BẪY TÍN HIỆU (Ctrl+C / Ctrl+Z / TERM)
-# ==========================================
+
 LOCK_DIR="$HOME/.dmas_install.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 printf '%s => %s[ERROR] Một bản cài DMAS khác đang chạy (lock: %s).%s\n' "$TAG" "$C_RED" "$LOCK_DIR" "$C_RESET"
@@ -55,9 +49,7 @@ exit 1
 fi
 : >>"$LOG_FILE" || { printf '[ERROR] Không tạo được log %s\n' "$LOG_FILE"; exit 1; }
 printf '\n==== DMAS installer run %s ====\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo unknown)" >>"$LOG_FILE"
-# ==========================================
-# HELPER CƠ BẢN
-# ==========================================
+
 log() { printf '%s\n' "$*" >>"$LOG_FILE" 2>/dev/null || true; }
 info() { printf '%s => %s\n' "$TAG" "$*"; log "[INFO] $*"; }
 warn() { printf '%s => %s[!] %s%s\n' "$TAG" "$C_YELLOW" "$*" "$C_RESET"; log "[WARN] $*"; }
@@ -107,9 +99,7 @@ POOL_META_GLOBAL=""
 if [ "$SPINNER_STATUS" -ne 0 ]; then fail "$rl_desc"; fi
 return 0
 }
-# ==========================================
-# PHÁT HIỆN CPU / ROOT / BOOTLOADER
-# ==========================================
+
 CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 2)
 [ "$CORES" -ge 1 ] 2>/dev/null || CORES=2
 PERF_CPUS=""; EFF_CPUS=""
@@ -148,9 +138,7 @@ orange|yellow|red) BL_STATE="UNLOCKED" ;;
 *) BL_STATE="UNKNOWN" ;;
 esac
 fi
-# ==========================================
-# POOL TẢI .deb SONG SONG (watcher + boost CPU)
-# ==========================================
+
 pool_max() {
 pm=$CORES
 if [ "$ROOTED" = "yes" ]; then
@@ -257,9 +245,7 @@ rc=$?
 rm -rf "$PD_DIR" 2>/dev/null
 return $rc
 }
-# ==========================================
-# EXEC VÀO CONTAINER
-# ==========================================
+
 distro_exec() { proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1; }
 distro_exec_live() {
 proot-distro login "$DISTRO" -- /bin/sh -c "$1" >>"$LOG_FILE" 2>&1 &
@@ -288,9 +274,7 @@ if distro_exec "$td_cmd"; then return 0; fi
 warn "$td_desc"
 return 1
 }
-# ==========================================
-# REPO MOZILLA (có fallback trusted=yes khi key 404)
-# ==========================================
+
 add_mozilla_repo() {
 mi=1
 while [ "$mi" -le 3 ]; do
@@ -306,9 +290,7 @@ return 0
 fi
 return 1
 }
-# ==========================================
-# FIREFOX RIÊNG TỪNG DISTRO
-# ==========================================
+
 install_firefox_ubuntu() {
 if distro_exec '[ -x /usr/lib/firefox/firefox ] || [ -x /usr/lib/firefox-esr/firefox-esr ]'; then
 info "Firefox thật đã có trong container."
@@ -349,9 +331,7 @@ install_firefox_fedora() {
 if distro_exec 'command -v firefox >/dev/null 2>&1'; then info "Firefox đã có."; return 0; fi
 try_distro 'Cài Firefox thất bại' 'dnf install -y firefox' || true
 }
-# ==========================================
-# VS CODE
-# ==========================================
+
 install_vscode_debian() {
 VC_STEP="Kiểm tra VS Code đã tồn tại"
 log "[VSCODE] $VC_STEP"
@@ -414,18 +394,14 @@ log "[VSCODE] $VC_STEP"
 if distro_exec 'command -v code >/dev/null 2>&1'; then return 0; fi
 return 1
 }
-# ==========================================
-# FIX VS CODE PROOT: wrapper --no-sandbox + --user-data-dir + retry 3 bậc
-# ==========================================
+
 apply_vscode_proot_fix() {
 log "[VSCODE] Áp dụng fix proot: wrapper --no-sandbox + --user-data-dir + retry"
 if ! distro_exec 'if [ -x /usr/bin/code ]; then mkdir -p /root/.vscode-root; printf "#!/bin/sh\nexport DISPLAY=\"\${DISPLAY:-:0}\"\nexport LIBGL_ALWAYS_SOFTWARE=1\nLOG=/root/.dmas_code.log\necho \"=== run \$(date) args: \$*\" >>\"\$LOG\"\n/usr/bin/code --no-sandbox --disable-gpu --disable-dev-shm-usage --no-zygote --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\nrc=\$?\nif [ \"\$rc\" -ne 0 ]; then\n echo \"[dmas] rc=\$rc -> retry bo --no-zygote\" >>\"\$LOG\"\n /usr/bin/code --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\n rc=\$?\nfi\nif [ \"\$rc\" -ne 0 ]; then\n echo \"[dmas] rc=\$rc -> retry minimal\" >>\"\$LOG\"\n /usr/bin/code --no-sandbox --user-data-dir=/root/.vscode-root \"\$@\" 2>>\"\$LOG\"\n rc=\$?\nfi\nexit \"\$rc\"\n" > /usr/local/bin/code && chmod 755 /usr/local/bin/code && sed -i "s|^Exec=/usr/bin/code|Exec=/usr/local/bin/code|" /usr/share/applications/code.desktop 2>/dev/null; echo DMAS_VSCODE_WRAPPER_OK; fi'; then
 warn "Không tạo được wrapper VS Code proot-fix."
 fi
 }
-# ==========================================
-# BANNER + PROGRESS
-# ==========================================
+
 show_banner() {
 if command -v clear >/dev/null 2>&1; then clear; else printf '\033[2J\033[H'; fi
 printf '%s\n' "${C_CYAN}+---------------------------------------------------+${C_RESET}"
@@ -451,9 +427,7 @@ printf '\r\033[K%s => [%s%s%s] %s%3d%%%s => %s\033[K' "$TAG" "$C_GREEN" "$bar" "
 if [ "$pct" -eq 100 ]; then printf '\n'; fi
 return 0
 }
-# ==========================================
-# MAIN FLOW
-# ==========================================
+
 show_banner
 if [ "$UPDATE_MODE" -eq 1 ]; then
 info "Đã setup trước đó -> CHẾ ĐỘ CẬP NHẬT & SỬA CHỮA (kiểm tra trước, không cài lại thứ đã có)."
@@ -473,7 +447,7 @@ command -v termux-x11 >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS termux-x11-ni
 command -v wget >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS wget"
 command -v curl >/dev/null 2>&1 || TERMUX_PKGS="$TERMUX_PKGS curl"
 if [ -n "$TERMUX_PKGS" ]; then
-# shellcheck disable=SC2086
+
 run "Cài gói Termux thiếu thất bại" pkg install -y $TERMUX_PKGS
 else
 info "Gói Termux đã đủ."
@@ -533,7 +507,7 @@ if [ "$DISTRO" = "debian" ]; then install_firefox_debian; else install_firefox_u
 try_distro 'Thiết lập locale Debian/Ubuntu thất bại' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
 fi
 info "Locale UTF-8 sẵn sàng."
-# ---- Tải thêm theme/icon/cursor đẹp từ GitHub (best-effort, có marker) ----
+
 draw_progress 60 "Tải theme/icon/cursor mở rộng từ GitHub"
 FETCH_SRC="$HOME/.dmas_fetch_themes.src.$$"
 cat <<'FETCHEOF' > "$FETCH_SRC" || fail "Không ghi được fetcher template"
@@ -657,7 +631,7 @@ DESKTOP_SRC="$HOME/.dmas_ui_desktop.src.$$"
 DESKTOP_OUT="$HOME/.dmas_ui_desktop.out.$$"
 cat <<'UIEOF' > "$UI_SRC" || fail "Không ghi được UI template"
 #!/bin/sh
-# DMAS UI fix - generated by linuxdmas.sh
+
 DISPLAY="${DISPLAY:-:0}"
 export DISPLAY
 WALLPAPER_DIR="/root/Pictures"
@@ -707,12 +681,12 @@ if xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then break; fi
 sleep 1; i=$((i + 1))
 done
 if command -v xfconf-query >/dev/null 2>&1; then
-# ---- Wallpaper ----
+
 if [ -n "$WALLPAPER" ]; then
 for prop in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$'); do
 xfconf-query -c xfce4-desktop -p "$prop" -s "$WALLPAPER" 2>/dev/null || true
 done
-# shellcheck disable=SC2086
+
 MONS=$(xrandr 2>/dev/null | grep ' connected' | cut -d' ' -f1)
 for mon in $MONS monitor0; do
 xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor$mon/workspace0/last-image" -s "$WALLPAPER" --create -t string 2>/dev/null || true
@@ -721,10 +695,10 @@ xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor$mon/image-show" -s t
 done
 ui_log "wallpaper: $WALLPAPER"
 fi
-# ---- Icon desktop: cỡ chuẩn, tránh lệch ----
+
 xfconf-query -c xfce4-desktop -p /desktop-icons/style -s 2 --create -t int 2>/dev/null || true
 xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -s 48 --create -t uint 2>/dev/null || true
-# ---- Theme: ưu tiên theme tải từ GitHub ----
+
 pick_dir() {
 pd_dir="$1"; shift
 for t in "$@"; do
@@ -743,7 +717,7 @@ if [ -n "$ICO_T" ]; then xfconf-query -c xsettings -p /Net/IconThemeName -s "$IC
 if [ -n "$CUR_T" ]; then xfconf-query -c xsettings -p /Gtk/CursorThemeName -s "$CUR_T" --create -t string 2>/dev/null || true; fi
 xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 24 --create -t int 2>/dev/null || true
 ui_log "theme: GTK=$GTK_T ICON=$ICO_T CURSOR=$CUR_T"
-# ---- Panel-1: dưới cùng, full ngang, autohide, locked, hết lệch hàng ----
+
 P1=panel-1
 xfconf-query -c xfce4-panel -p "/panels/$P1/position" -s "p=10;x=0;y=0" --create -t string 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/length" -s 100 --create -t uint 2>/dev/null || true
@@ -759,7 +733,7 @@ else
 xfconf-query -c xfce4-panel -p "/panels/$P1/background-style" -s 1 --create -t uint 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P1/background-rgba" --create --force-array -t double -s 0.08 -s 0.08 -s 0.10 -s 0.85 2>/dev/null || true
 fi
-# ---- Panel-2: góc phải trên, nhỏ, đồng hồ ----
+
 P2=panel-2
 xfconf-query -c xfce4-panel -p "/panels/$P2/position" -s "p=7;x=0;y=0" --create -t string 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/length" -s 30 --create -t uint 2>/dev/null || true
@@ -778,10 +752,10 @@ else
 xfconf-query -c xfce4-panel -p "/panels/$P2/background-style" -s 1 --create -t uint 2>/dev/null || true
 xfconf-query -c xfce4-panel -p "/panels/$P2/background-rgba" --create --force-array -t double -s 0.08 -s 0.08 -s 0.10 -s 0.85 2>/dev/null || true
 fi
-# ---- Áp dụng ngay ----
+
 xfce4-panel -r 2>/dev/null || true
 ui_log "panel1=bottom+img($HAS_P1), panel2=top-right+clock+img($HAS_P2)"
-# ---- Icon desktop cho VS Code + Firefox ----
+
 if command -v code >/dev/null 2>&1; then
 cat > /root/Desktop/code.desktop <<'DESK1'
 [Desktop Entry]
@@ -818,7 +792,7 @@ DESK2
 chmod +x /root/Desktop/firefox.desktop 2>/dev/null || true
 gio set /root/Desktop/firefox.desktop metadata::trusted true 2>/dev/null || true
 fi
-# ---- Theme switcher ----
+
 cat > /root/.dmas_theme.sh <<'SWEOF'
 #!/bin/sh
 echo "=== GTK themes ==="; ls /usr/share/themes 2>/dev/null
@@ -869,9 +843,7 @@ fail "Không ghi được autostart desktop"
 fi
 distro_cmd 'chmod desktop file thất bại' 'chmod 644 /root/.config/autostart/dmas_ui.desktop'
 rm -f "$UI_SRC" "$UI_OUT" "$DESKTOP_SRC" "$DESKTOP_OUT" 2>/dev/null || true
-# ==========================================
-# LAUNCHER startdmas.sh + UNINSTALLER unidmas.sh
-# ==========================================
+
 draw_progress 92 "Tạo startdmas.sh + unidmas.sh"
 START_SRC="$HOME/.startdmas.src.$$"
 START_TMP="$HOME/.startdmas.tmp.$$"
@@ -1015,16 +987,16 @@ UNI_TMP="$HOME/.unidmas.tmp.$$"
 cat <<'UNI_EOF' > "$UNI_SRC" || fail "Không ghi được unidmas template"
 #!/bin/sh
 DISTRO="__DMAS_DISTRO__"
-echo "!!! GO CAI DAT LINUX DMAS (container: $DISTRO) !!!"
+echo "!!! GỠ CÀI ĐẶT LINUX DMAS (container: $DISTRO) !!!"
 printf 'Nhập đúng chữ "yes" để xác nhận: '
 read -r CONF
-[ "$CONF" = "yes" ] || { echo "Huy lenh go."; exit 1; }
+[ "$CONF" = "yes" ] || { echo "Hủy lệnh gõ."; exit 1; }
 echo "[*] Dung X11..."
 pkill -f "termux-x11 :0" 2>/dev/null
 pkill -f "Xwayland :0" 2>/dev/null
 sleep 1
 if command -v proot-distro >/dev/null 2>&1; then
-echo "[*] Go container $DISTRO..."
+echo "[*] Gỡ container $DISTRO..."
 proot-distro remove "$DISTRO" 2>/dev/null || true
 fi
 if command -v pkg >/dev/null 2>&1; then
