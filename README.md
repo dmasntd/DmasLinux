@@ -44,5 +44,5 @@
 
 # Update
 - Phiên bản [v1](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmas.sh) phiên bản dành cho user thường kém về tốc độ cài đặt
-- Phiên bản [v2](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh) phiên bản này sử dụng nhân CPU nhiều hơn mà mở nhiều subprocess để cài song song tăng tốc độ cài đặt giải quyết vấn đề ở phiên bản [v1](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmas.sh)
-- Phiên bản [v2](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh) fix lại UI và tăng tốc CPU hỗ trợ môi trường root, thêm tính năng chia đều CPu và ưu tiên CPU có hiệu năng cao cho subprocess đang cần
+- Phiên bản [v2](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh) phiên bản này giải quyết vấn đề ở phiên bản [v1](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmas.sh)
+- Phiên bản [v2](https://github.com/dmasntd/DmasLinux/blob/main/linuxdmasv2.sh) fix lại UI và tăng tốc CPU hỗ trợ môi trường root, thêm tính năng chia đều CPU và ưu tiên CPU có hiệu năng cao cho subprocess đang cần, thêm tính năng cài song song bằng subprocess
