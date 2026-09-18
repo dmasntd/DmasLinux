@@ -37,4 +37,10 @@
 - Nếu muốn buil server cao hơn cũng cần đến root
 - Nó không thể thay thế thành máy tính thật được và nó giới hạn xử lý theo chip
 - Nên chạy dự án nhẹ vừa đủ 
-  
+
+# Tài liệu
+- [Tài liệu]
+
+# Phiên bản
+- DmasLinux-v1:
+- DmasLinux-v2: 
