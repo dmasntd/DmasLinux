@@ -2,6 +2,9 @@
 # ==========================================
 # LINUX DMAS AUTOMATED INSTALLER (POSIX)
 # ==========================================
+# Chạy lại nhiều lần an toàn; DMAS_FORCE_IPV4=1 sh linuxdmas.sh nếu mạng kẹt IPv6
+# Pool tải song song CÓ đồng bộ: sync.list tổng hợp 1 chỗ, cài 1 lần qua --shared-tmp
+# ==========================================
 ESC=$(printf '\033')
 C_CYAN="${ESC}[38;2;0;220;255m"
 C_GREEN="${ESC}[38;2;50;255;120m"
@@ -196,10 +199,13 @@ if distro_exec "$td_cmd"; then return 0; fi
 warn "$td_desc"
 return 1
 }
+# ==========================================
+# POOL TẢI SONG SONG CÓ ĐỒNG BỘ (sync.list) + TỔNG HỢP CÀI 1 LẦN
+# ==========================================
 pool_max() {
 pm=$CORES
 if [ "$ROOTED" = "yes" ]; then
-pm=$((CORES * 2))
+pm=$((pm * 2))
 [ "$pm" -gt 16 ] && pm=16
 else
 [ "$pm" -gt 8 ] && pm=8
@@ -207,10 +213,15 @@ fi
 [ "$pm" -lt 1 ] && pm=1
 printf '%s' "$pm"
 }
-pd_serial() { distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends $1"; }
+pd_serial() {
+distro_exec "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -y --no-install-recommends $1"
+}
 pool_install_debs() {
 pd_desc="$1"; pd_pkgs="$2"
-if [ -z "$(printf '%s' "$pd_pkgs" | tr -d ' ')" ]; then info "$pd_desc: không thiếu gói nào."; return 0; fi
+if [ -z "$(printf '%s' "$pd_pkgs" | tr -d ' ')" ]; then
+info "$pd_desc: không thiếu gói nào."
+return 0
+fi
 PD_DIR="${TMPDIR:-$PREFIX/tmp}/dmas_pool.$$"
 rm -rf "$PD_DIR" 2>/dev/null
 mkdir -p "$PD_DIR/debs" 2>/dev/null || { warn "Không tạo được thư mục pool -> cài tuần tự."; pd_serial "$pd_pkgs"; return $?; }
@@ -223,7 +234,11 @@ return $?
 fi
 UCOUNT=$(grep -c '^http' "$PD_DIR/uris.txt" 2>/dev/null)
 [ -n "$UCOUNT" ] || UCOUNT=0
-if [ "$UCOUNT" -lt 1 ]; then info "$pd_desc: không có gì cần tải."; rm -rf "$PD_DIR" 2>/dev/null; return 0; fi
+if [ "$UCOUNT" -lt 1 ]; then
+info "$pd_desc: không có gì cần tải."
+rm -rf "$PD_DIR" 2>/dev/null
+return 0
+fi
 NW=$(pool_max)
 [ "$NW" -gt "$UCOUNT" ] && NW=$UCOUNT
 i=0
@@ -237,7 +252,7 @@ w=0
 while [ "$w" -lt "$NW" ]; do
 if [ -s "$PD_DIR/w$w" ]; then
 cp "$PD_DIR/w$w" "$PD_DIR/debs/w$w.list" 2>/dev/null
-proot-distro login "$DISTRO" --shared-tmp -- /bin/sh -c "mkdir -p /tmp/dmas_debs; while IFS= read -r u; do b=\${u##*/}; f=/tmp/dmas_debs/\$b; if [ -s \"\$f\" ]; then continue; fi; if wget -q -T 60 -O \"\$f.part\" \"\$u\" 2>/dev/null || curl -fsSL --max-time 60 -o \"\$f.part\" \"\$u\" 2>/dev/null; then mv \"\$f.part\" \"\$f\" 2>/dev/null || rm -f \"\$f.part\"; else rm -f \"\$f.part\" 2>/dev/null; fi; done < /tmp/dmas_pool.$$/debs/w$w.list" >>"$LOG_FILE" 2>&1 &
+proot-distro login "$DISTRO" --shared-tmp -- /bin/sh -c "mkdir -p /tmp/dmas_debs; while IFS= read -r u; do b=\${u##*/}; f=/tmp/dmas_debs/\$b; if [ -s \"\$f\" ]; then echo \"\$b DA-CO\" >> /tmp/dmas_debs/sync.list; continue; fi; if wget -q -T 60 -O \"\$f.part\" \"\$u\" 2>/dev/null || curl -fsSL --max-time 60 -o \"\$f.part\" \"\$u\" 2>/dev/null; then if mv \"\$f.part\" \"\$f\" 2>/dev/null; then echo \"\$b TAI-OK\" >> /tmp/dmas_debs/sync.list; else rm -f \"\$f.part\" 2>/dev/null; echo \"\$b LOI\" >> /tmp/dmas_debs/sync.list; fi; else rm -f \"\$f.part\" 2>/dev/null; echo \"\$b LOI\" >> /tmp/dmas_debs/sync.list; fi; done < /tmp/dmas_pool.$$/debs/w$w.list" >>"$LOG_FILE" 2>&1 &
 pid=$!
 POOL_META="$POOL_META $pid:$w:$(date +%s 2>/dev/null || echo 0)"
 POOL_META_GLOBAL="$POOL_META_GLOBAL $pid:$w:0"
@@ -253,22 +268,23 @@ pid=${m%%:*}
 if kill -0 "$pid" 2>/dev/null; then active=$((active + 1)); fi
 done
 [ "$active" -eq 0 ] && break
-ndeb=0
-[ -d "$PD_DIR/debs" ] && ndeb=$(ls "$PD_DIR/debs" 2>/dev/null | grep -c '\.deb$')
-printf '\r\033[K%s => %s [%s/%s deb, %s worker]%s\033[K' "$TAG" "$pd_desc" "$ndeb" "$UCOUNT" "$active" "$C_RESET"
+ndeb=$(ls "$PD_DIR/debs" 2>/dev/null | grep -c '\.deb$')
+nsync=0
+[ -f "$PD_DIR/debs/sync.list" ] && nsync=$(wc -l < "$PD_DIR/debs/sync.list" 2>/dev/null | tr -d ' ')
+printf '\r\033[K%s => %s [%s/%s deb, %s worker, %s sync]%s\033[K' "$TAG" "$pd_desc" "$ndeb" "$UCOUNT" "$active" "$nsync" "$C_RESET"
 if [ "$ROOTED" = "yes" ]; then
 best=""; bestel=0; now=$(date +%s 2>/dev/null || echo 0)
 for m in $POOL_META; do
 pid=${m%%:*}; rest=${m#*:}; t0=${rest##*:}
 if kill -0 "$pid" 2>/dev/null; then
 el=$((now - t0))
-[ "$el" -gt "$bestel" ] && { bestel=$el; best=$pid; }
+if [ "$el" -gt "$bestel" ]; then bestel=$el; best=$pid; fi
 fi
 done
 if [ -n "$best" ]; then
 case " $BOOSTED " in *" $best "*) : ;; *)
-command -v renice >/dev/null 2>&1 && renice -n -10 -p "$best" >/dev/null 2>&1
-command -v taskset >/dev/null 2>&1 && [ -n "$PERF_CPUS" ] && taskset -pc "$PERF_CPUS" "$best" >/dev/null 2>&1
+if command -v renice >/dev/null 2>&1; then renice -n -10 -p "$best" >/dev/null 2>&1 || true; fi
+if command -v taskset >/dev/null 2>&1 && [ -n "$PERF_CPUS" ]; then taskset -pc "$PERF_CPUS" "$best" >/dev/null 2>&1 || true; fi
 BOOSTED="$BOOSTED $best"
 ;; esac
 for m in $POOL_META; do
@@ -276,7 +292,7 @@ pid=${m%%:*}
 [ "$pid" = "$best" ] && continue
 kill -0 "$pid" 2>/dev/null || continue
 case " $BOOSTED " in *" $pid "*) continue ;; esac
-command -v taskset >/dev/null 2>&1 && [ -n "$EFF_CPUS" ] && taskset -pc "$EFF_CPUS" "$pid" >/dev/null 2>&1
+if command -v taskset >/dev/null 2>&1 && [ -n "$EFF_CPUS" ]; then taskset -pc "$EFF_CPUS" "$pid" 2>/dev/null || true; fi
 BOOSTED="$BOOSTED $pid"
 done
 fi
@@ -286,13 +302,16 @@ done
 printf '\r\033[K'
 for m in $POOL_META; do pid=${m%%:*}; wait "$pid" 2>/dev/null; done
 POOL_META_GLOBAL=""
-log "[POOL] dpkg -i các deb đã tải"
-distro_exec "dpkg -i /tmp/dmas_debs/*.deb 2>&1 | tail -n 5; export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS install -f -y" || true
+log "[POOL] Tổng hợp deb đã tải + cài 1 lần (shared-tmp)"
+proot-distro login "$DISTRO" --shared-tmp -- /bin/sh -c "export DEBIAN_FRONTEND=noninteractive; n=\$(ls /tmp/dmas_debs/*.deb 2>/dev/null | wc -l | tr -d ' '); n=\${n:-0}; echo \"DMAS-POOL: tong hop \$n deb\"; if [ \"\$n\" -gt 0 ]; then dpkg -i /tmp/dmas_debs/*.deb 2>&1 | tail -n 3; fi; apt-get $APT_OPTS install -f -y" >>"$LOG_FILE" 2>&1 || true
 pd_serial "$pd_pkgs"
 rc=$?
 rm -rf "$PD_DIR" 2>/dev/null
 return $rc
 }
+# ==========================================
+# VS CODE
+# ==========================================
 install_vscode_debian() {
 VC_STEP="Kiểm tra VS Code đã tồn tại"
 log "[VSCODE] $VC_STEP"
@@ -361,6 +380,9 @@ if ! distro_exec 'if [ -x /usr/bin/code ]; then mkdir -p /root/.vscode-root; pri
 warn "Không tạo được wrapper VS Code proot-fix."
 fi
 }
+# ==========================================
+# FIREFOX
+# ==========================================
 add_mozilla_repo() {
 mi=1
 while [ "$mi" -le 3 ]; do
@@ -415,6 +437,34 @@ return 1
 install_firefox_fedora() {
 if distro_exec 'command -v firefox >/dev/null 2>&1'; then info "Firefox đã có."; return 0; fi
 try_distro 'Cài Firefox thất bại' 'dnf install -y firefox' || true
+}
+# ==========================================
+# GÓI NỀN + THEME RIÊNG TỪNG DISTRO (dùng pool)
+# ==========================================
+install_packages_ubuntu() {
+try_distro 'Sửa dpkg/apt kẹt lần trước thất bại' 'if command -v flock >/dev/null 2>&1; then i=0; while [ "$i" -lt 60 ]; do if flock -n /var/lib/dpkg/lock-frontend true 2>/dev/null; then break; fi; sleep 2; i=$((i+2)); done; fi; holder=0; for c in /proc/[0-9]*/comm; do if [ -r "$c" ] && grep -q -e "^apt-get" -e "^dpkg" "$c" 2>/dev/null; then holder=1; break; fi; done; if [ "$holder" -eq 0 ]; then rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock 2>/dev/null || true; else echo "DMAS: dpkg lock vẫn được giữ bởi process đang sống."; fi; dpkg --configure -a || true; apt-get install -f -y || true'
+try_distro 'Cập nhật apt thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y"
+miss=$(distro_exec 'miss=""; for p in dbus-x11 xfce4 xfce4-terminal thunar curl wget ca-certificates gnupg apt-transport-https locales git; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
+if ! pool_install_debs "Gói nền Ubuntu" "$miss"; then fail "Cài gói nền Ubuntu thất bại"; fi
+miss2=$(distro_exec 'dpkg -s xfce4-goodies >/dev/null 2>&1 || echo xfce4-goodies' | tail -n 1)
+pool_install_debs "xfce4-goodies Ubuntu" "$miss2" || true
+miss3=$(distro_exec 'miss=""; for p in arc-theme numix-gtk-theme greybird-gtk-theme gnome-themes-extra gtk2-engines-murrine gtk2-engines-pixbuf papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme elementary-xfce-icon-theme adwaita-icon-theme tango-icon-theme gnome-icon-theme suru-icon-theme faenza-icon-theme breeze-icon-theme humanity-icon-theme comixcursors fonts-ubuntu fonts-noto-color-emoji fonts-firacode fonts-jetbrains-mono; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
+pool_install_debs "Theme/icon Ubuntu" "$miss3" || true
+}
+install_packages_debian() {
+try_distro 'Sửa dpkg/apt kẹt lần trước thất bại' 'if command -v flock >/dev/null 2>&1; then i=0; while [ "$i" -lt 60 ]; do if flock -n /var/lib/dpkg/lock-frontend true 2>/dev/null; then break; fi; sleep 2; i=$((i+2)); done; fi; holder=0; for c in /proc/[0-9]*/comm; do if [ -r "$c" ] && grep -q -e "^apt-get" -e "^dpkg" "$c" 2>/dev/null; then holder=1; break; fi; done; if [ "$holder" -eq 0 ]; then rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock 2>/dev/null || true; else echo "DMAS: dpkg lock vẫn được giữ bởi process đang sống."; fi; dpkg --configure -a || true; apt-get install -f -y || true'
+try_distro 'Cập nhật apt thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y"
+miss=$(distro_exec 'miss=""; for p in dbus-x11 xfce4 xfce4-terminal thunar curl wget ca-certificates gnupg apt-transport-https locales git; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
+if ! pool_install_debs "Gói nền Debian" "$miss"; then fail "Cài gói nền Debian thất bại"; fi
+miss2=$(distro_exec 'dpkg -s xfce4-goodies >/dev/null 2>&1 || echo xfce4-goodies' | tail -n 1)
+pool_install_debs "xfce4-goodies Debian" "$miss2" || true
+miss3=$(distro_exec 'miss=""; for p in arc-theme numix-gtk-theme materia-gtk-theme greybird-gtk-theme gnome-themes-extra gtk2-engines-murrine gtk2-engines-pixbuf papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme elementary-xfce-icon-theme adwaita-icon-theme tango-icon-theme gnome-icon-theme faenza-icon-theme breeze-icon-theme comixcursors fonts-noto-color-emoji fonts-firacode fonts-jetbrains-mono; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
+pool_install_debs "Theme/icon Debian" "$miss3" || true
+}
+install_packages_fedora() {
+try_distro 'Sửa transaction dnf kẹt lần trước thất bại' 'dnf -y complete-transaction || true; dnf clean all || true; dnf makecache --refresh || true'
+distro_cmd_live 'Cài gói nền Fedora thất bại' 'miss=""; for p in xfce4-session xfwm4 xfce4-panel xfdesktop xfce4-terminal Thunar dbus-x11 curl wget git gnupg glibc-langpack-en; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then case "$miss" in *xfce4-session*) dnf -y groupinstall "Xfce Desktop" || dnf -y install $miss || true ;; *) dnf -y --setopt=max_parallel_downloads=8 install $miss || true ;; esac; else echo "DMAS: gói nền Fedora đã đủ."; fi'
+try_distro 'Cài bộ theme Fedora thất bại' 'miss=""; for p in arc-theme numix-gtk-theme materia-gtk-theme greybird-gtk-theme gnome-themes-extra papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme adwaita-icon-theme breeze-icon-theme capitaine-cursors openzone-cursors comixcursors google-noto-emoji-color-fonts jetbrains-mono-fonts firacode-fonts; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then dnf -y --setopt=max_parallel_downloads=8 install $miss || for p in $miss; do dnf -y install "$p" || true; done; else echo "DMAS: theme Fedora đã đủ."; fi'
 }
 show_banner
 if [ "$UPDATE_MODE" -eq 1 ]; then
@@ -477,22 +527,17 @@ fi
 printf '%s\n' "$DISTRO" > "$STATE_FILE"
 draw_progress 45 "Sửa lỗi kẹt + cài gói nền + theme ($DISTRO)"
 if [ "$DISTRO" = "fedora" ]; then
-try_distro 'Sửa transaction dnf kẹt lần trước thất bại' 'dnf -y complete-transaction || true; dnf clean all || true; dnf makecache --refresh || true'
-distro_cmd_live 'Cài gói nền Fedora thất bại' 'miss=""; for p in xfce4-session xfwm4 xfce4-panel xfdesktop xfce4-terminal Thunar dbus-x11 curl wget git gnupg glibc-langpack-en; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then case "$miss" in *xfce4-session*) dnf -y groupinstall "Xfce Desktop" || dnf -y install $miss || true ;; *) dnf -y --setopt=max_parallel_downloads=8 install $miss || true ;; esac; else echo "DMAS: gói nền Fedora đã đủ."; fi'
-try_distro 'Cài bộ theme Fedora thất bại' 'miss=""; for p in arc-theme numix-gtk-theme materia-gtk-theme greybird-gtk-theme gnome-themes-extra papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme adwaita-icon-theme breeze-icon-theme capitaine-cursors openzone-cursors comixcursors google-noto-emoji-color-fonts jetbrains-mono-fonts firacode-fonts; do rpm -q "$p" >/dev/null 2>&1 || miss="$miss $p"; done; if [ -n "$miss" ]; then dnf -y --setopt=max_parallel_downloads=8 install $miss || for p in $miss; do dnf -y install "$p" || true; done; else echo "DMAS: theme Fedora đã đủ."; fi'
+install_packages_fedora
 install_firefox_fedora
 try_distro 'Thiết lập locale Fedora thất bại' 'if ! locale -a 2>/dev/null | grep -qi "^en_US.utf8"; then dnf install -y glibc-langpack-en || true; fi; printf "LANG=en_US.UTF-8\n" > /etc/locale.conf; printf "export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n" > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true'
+elif [ "$DISTRO" = "debian" ]; then
+install_packages_debian
+install_firefox_debian
+try_distro 'Thiết lập locale Debian thất bại' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
 else
-try_distro 'Sửa dpkg/apt kẹt lần trước thất bại' 'if command -v flock >/dev/null 2>&1; then i=0; while [ "$i" -lt 60 ]; do if flock -n /var/lib/dpkg/lock-frontend true 2>/dev/null; then break; fi; sleep 2; i=$((i+2)); done; fi; holder=0; for c in /proc/[0-9]*/comm; do if [ -r "$c" ] && grep -q -e "^apt-get" -e "^dpkg" "$c" 2>/dev/null; then holder=1; break; fi; done; if [ "$holder" -eq 0 ]; then rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock 2>/dev/null || true; else echo "DMAS: dpkg lock vẫn được giữ bởi process sống."; fi; dpkg --configure -a || true; apt-get install -f -y || true'
-try_distro 'Cập nhật apt thất bại' "export DEBIAN_FRONTEND=noninteractive; apt-get $APT_OPTS update -y"
-miss=$(distro_exec "miss=\"\"; for p in dbus-x11 xfce4 xfce4-terminal thunar curl wget ca-certificates gnupg apt-transport-https locales git; do dpkg -s \"\$p\" >/dev/null 2>&1 || miss=\"\$miss \$p\"; done; echo \$miss" | tail -n 1)
-if ! pool_install_debs "Gói nền $DISTRO" "$miss"; then fail "Cài gói nền $DISTRO thất bại"; fi
-miss2=$(distro_exec 'dpkg -s xfce4-goodies >/dev/null 2>&1 || echo xfce4-goodies' | tail -n 1)
-pool_install_debs "xfce4-goodies $DISTRO" "$miss2" || true
-miss3=$(distro_exec 'miss=""; for p in arc-theme numix-gtk-theme greybird-gtk-theme gnome-themes-extra gtk2-engines-murrine gtk2-engines-pixbuf papirus-icon-theme numix-icon-theme numix-icon-theme-circle moka-icon-theme elementary-xfce-icon-theme adwaita-icon-theme tango-icon-theme gnome-icon-theme suru-icon-theme faenza-icon-theme breeze-icon-theme humanity-icon-theme comixcursors fonts-ubuntu fonts-noto-color-emoji fonts-firacode fonts-jetbrains-mono; do dpkg -s "$p" >/dev/null 2>&1 || miss="$miss $p"; done; echo $miss' | tail -n 1)
-pool_install_debs "Theme/icon $DISTRO" "$miss3" || true
-if [ "$DISTRO" = "debian" ]; then install_firefox_debian; else install_firefox_ubuntu; fi
-try_distro 'Thiết lập locale Debian/Ubuntu thất bại' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
+install_packages_ubuntu
+install_firefox_ubuntu
+try_distro 'Thiết lập locale Ubuntu thất bại' "export DEBIAN_FRONTEND=noninteractive; if ! locale -a 2>/dev/null | grep -qi \"^en_US.utf8\"; then apt-get $APT_OPTS install -y locales || true; if [ -f /etc/locale.gen ]; then sed -i \"s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/\" /etc/locale.gen 2>/dev/null || true; grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; fi; locale-gen en_US.UTF-8 || true; else echo \"DMAS: locale đã có.\"; fi; update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 || true; printf 'export LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n' > /etc/profile.d/99-dmas-locale.sh; chmod 644 /etc/profile.d/99-dmas-locale.sh || true"
 fi
 info "Locale UTF-8 sẵn sàng."
 draw_progress 60 "Tải theme/icon/cursor mở rộng từ GitHub"
@@ -567,6 +612,13 @@ install_icons tela https://github.com/vinceliuice/Tela-circle-icon-theme/archive
 install_icons beautyline https://github.com/vinceliuice/BeautyLine-icon-theme/archive/refs/heads/master.tar.gz icon
 install_icons mcmojave https://github.com/vinceliuice/McMojave-cursors/archive/refs/heads/master.tar.gz cursor
 install_icons apple https://github.com/ful1e5/Apple_Cursors/archive/refs/heads/main.tar.gz cursor
+for d in /usr/share/icons/ComixCursors*; do
+[ -d "$d/cursors" ] || continue
+[ -f "$d/index.theme" ] && continue
+nm=$(basename "$d")
+printf '[Icon Theme]\nName=%s\nType=CursorTheme\nSize=32\nDirectories=cursors\n\n[cursors]\nSize=32\n' "$nm" > "$d/index.theme" 2>/dev/null || true
+log "created index.theme for $nm"
+done
 log "hoàn tất fetch themes"
 FETCHEOF
 if command -v tr >/dev/null 2>&1; then
@@ -635,7 +687,7 @@ verify_image() {
 file="$1"; ext="$2"
 [ -s "$file" ] || return 1
 if ! command -v od >/dev/null 2>&1 || ! command -v tr >/dev/null 2>&1; then return 0; fi
-magic=$(od -An -N4 -tx1 "$file" 2>/dev/null | tr -d ' \n')
+magic=$(od -An -N4 -tx1 "$file" 2>/dev/null | tr -d '\n')
 case "$ext" in
 png) [ "$magic" = "89504e47" ] && return 0 ;;
 jpg|jpeg) case "$magic" in ffd8ff*) return 0 ;; esac ;;
@@ -661,6 +713,15 @@ if fetch_once "$PRIMARY_URL" "$PRIMARY_FILE" png; then WALLPAPER="$PRIMARY_FILE"
 elif fetch_once "$FALLBACK_URL" "$FALLBACK_FILE" jpg; then WALLPAPER="$FALLBACK_FILE"; ui_log "wallpaper chính lỗi, dùng fallback"; fi
 HAS_P1="no"; fetch_once "$P1_URL" "$P1_FILE" png && HAS_P1="yes"
 HAS_P2="no"; fetch_once "$P2_URL" "$P2_FILE" png && HAS_P2="yes"
+if ! command -v gio >/dev/null 2>&1; then
+(apt-get install -y libglib2.0-bin >/dev/null 2>&1 || dnf install -y glib2 >/dev/null 2>&1) || true
+fi
+for d in /usr/share/icons/ComixCursors*; do
+[ -d "$d/cursors" ] || continue
+[ -f "$d/index.theme" ] && continue
+nm=$(basename "$d")
+printf '[Icon Theme]\nName=%s\nType=CursorTheme\nSize=32\nDirectories=cursors\n\n[cursors]\nSize=32\n' "$nm" > "$d/index.theme" 2>/dev/null || true
+done
 i=0
 while [ "$i" -lt 30 ]; do
 if xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then break; fi
@@ -671,7 +732,6 @@ if [ -n "$WALLPAPER" ]; then
 for prop in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$'); do
 xfconf-query -c xfce4-desktop -p "$prop" -s "$WALLPAPER" 2>/dev/null || true
 done
-# shellcheck disable=SC2086
 MONS=$(xrandr 2>/dev/null | grep ' connected' | cut -d' ' -f1)
 for mon in $MONS monitor0; do
 xfconf-query -c xfce4-desktop -p "/backdrop/screen0/monitor$mon/workspace0/last-image" -s "$WALLPAPER" --create -t string 2>/dev/null || true
@@ -743,7 +803,6 @@ StartupNotify=true
 Categories=Development;IDE;
 DESK1
 chmod +x /root/Desktop/code.desktop 2>/dev/null || true
-gio set /root/Desktop/code.desktop metadata::trusted true 2>/dev/null || true
 fi
 FFBIN=""
 if [ -x /usr/lib/firefox/firefox ]; then FFBIN="/usr/lib/firefox/firefox"
@@ -763,8 +822,16 @@ StartupNotify=true
 Categories=Network;WebBrowser;
 DESK2
 chmod +x /root/Desktop/firefox.desktop 2>/dev/null || true
-gio set /root/Desktop/firefox.desktop metadata::trusted true 2>/dev/null || true
 fi
+for df in /root/Desktop/code.desktop /root/Desktop/firefox.desktop; do
+[ -f "$df" ] || continue
+if command -v gio >/dev/null 2>&1; then
+gio set "$df" metadata::trusted true 2>/dev/null || true
+fi
+setfattr -n user.metadata::trusted -v 1 "$df" 2>/dev/null || true
+setfattr -n user.trusted -v 1 "$df" 2>/dev/null || true
+done
+ui_log "desktop icons trusted: code.desktop firefox.desktop"
 cat > /root/.dmas_theme.sh <<'SWEOF'
 #!/bin/sh
 echo "=== GTK themes ==="; ls /usr/share/themes 2>/dev/null
@@ -947,7 +1014,7 @@ DISTRO="__DMAS_DISTRO__"
 echo "!!! GỠ CÀI ĐẶT LINUX DMAS (container: $DISTRO) !!!"
 printf 'Nhập đúng chữ "yes" để xác nhận: '
 read -r CONF
-[ "$CONF" = "yes" ] || { echo "Hủy lệnh gỡ."; exit 1; }
+[ "$CONF" = "yes" ] || { echo "Hủy lệnh gõ."; exit 1; }
 echo "[*] Dừng X11..."
 pkill -f "termux-x11 :0" 2>/dev/null
 pkill -f "Xwayland :0" 2>/dev/null
